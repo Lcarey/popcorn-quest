@@ -1,0 +1,9 @@
+{
+  "PopcornQuestStack": {
+    "TableName": "PopcornQuest",
+    "FunctionUrl": "https://lrg22ohbfw7liblkpg5balteq40algtm.lambda-url.us-east-1.on.aws/",
+    "BucketName": "popcornqueststack-webbucket12880f5b-kjmbpebuoz4t",
+    "AppUrl": "https://d2yarswf6mkx50.cloudfront.net",
+    "DistributionId": "ELWWYPF9HD0LN"
+  }
+}

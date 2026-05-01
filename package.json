@@ -1,0 +1,23 @@
+{
+  "name": "popcorn-quest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Popcorn's Chore Quest — a serverless gamified chore tracker for kids",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "infra"
+  ],
+  "scripts": {
+    "build:shared": "npm run build -w @popcorn/shared",
+    "build:api": "npm run build -w @popcorn/api",
+    "build:web": "npm run build -w @popcorn/web",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "dev:web": "npm run dev -w @popcorn/web",
+    "dev:api": "npm run dev -w @popcorn/api",
+    "deploy": "npm run build && npm run deploy -w @popcorn/infra"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

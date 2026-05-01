@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    font-family: "Quicksand", system-ui, sans-serif;
+    background:
+      radial-gradient(circle at 20% 0%, #fde68a 0%, transparent 50%),
+      radial-gradient(circle at 100% 100%, #fbcfe8 0%, transparent 50%),
+      radial-gradient(circle at 0% 100%, #c4b5fd 0%, transparent 50%),
+      #fff7ed;
+    background-attachment: fixed;
+    color: #4c1d0d;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+  }
+  h1, h2, h3 {
+    font-family: "Fredoka", "Quicksand", system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white/85 backdrop-blur rounded-3xl p-4 shadow-chunky border-2 border-white;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center font-display font-semibold rounded-2xl px-5 py-3 shadow-chunky-sm border-2 border-white transition active:translate-y-1 active:shadow-none;
+  }
+  .btn-primary {
+    @apply btn bg-coral text-white;
+  }
+  .btn-secondary {
+    @apply btn bg-butter text-cocoa;
+  }
+  .btn-ghost {
+    @apply btn bg-white/60 text-cocoa;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold bg-white/70;
+  }
+}
+
+/* Hide scrollbar on mobile look */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

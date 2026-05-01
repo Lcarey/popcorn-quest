@@ -1,0 +1,22 @@
+{
+  "name": "@popcorn/infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "deploy": "cdk deploy --require-approval never --outputs-file cdk-outputs.json",
+    "hotswap": "cdk deploy --hotswap-fallback --require-approval never",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "destroy": "cdk destroy"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.160.0",
+    "constructs": "^10.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.5",
+    "aws-cdk": "^2.160.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}
