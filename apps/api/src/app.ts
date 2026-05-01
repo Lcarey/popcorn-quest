@@ -29,6 +29,8 @@ import {
   type TaskTemplate,
   type TodayState,
   type UpdateTemplateRequest,
+  levelFromXp,
+  type PetState,
   todayKey,
   weekStartKey,
   XP_PER,
@@ -81,9 +83,38 @@ function newId(): string {
   return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-6);
 }
 
-async function checkPin(familyId: string, pin: string): Promise<boolean> {
+type RawFamily = NonNullable<Awaited<ReturnType<typeof getFamily>>>;
+
+/** Normalize META record for API / XP logic (handles partial/corrupted pet in DynamoDB). */
+function toFamilyMeta(rec: RawFamily): FamilyMeta {
+  const { PK: _pk, SK: _sk, type: _t, pinHash: _ph, pet: petIn, streak, lastStreakDate, createdAt } =
+    rec as RawFamily & Record<string, unknown>;
+  const p = (petIn ?? {}) as Partial<PetState>;
+  const xp = typeof p.xp === "number" && Number.isFinite(p.xp) ? Math.max(0, p.xp) : 0;
+  const pet: PetState = {
+    name: typeof p.name === "string" && p.name.trim() ? p.name : "Popcorn",
+    xp,
+    level:
+      typeof p.level === "number" && p.level >= 1 ? p.level : levelFromXp(xp).level,
+    unlocked:
+      Array.isArray(p.unlocked) && p.unlocked.length > 0 ? p.unlocked : ["collar-red", "scene-yard"],
+    equipped:
+      p.equipped && typeof p.equipped === "object" && Object.keys(p.equipped).length > 0
+        ? p.equipped
+        : { collar: "collar-red", scene: "scene-yard" },
+    lastMood: p.lastMood,
+  };
+  return {
+    streak: typeof streak === "number" ? streak : 0,
+    lastStreakDate: typeof lastStreakDate === "string" ? lastStreakDate : undefined,
+    createdAt: typeof createdAt === "string" ? createdAt : new Date().toISOString(),
+    pet,
+  };
+}
+
+async function checkPin(pin: string): Promise<boolean> {
   if (!pin) return false;
-  const fam = await getFamily(familyId);
+  const fam = await getFamily();
   if (!fam) return false;
   return bcrypt.compare(pin, fam.pinHash);
 }
@@ -120,10 +151,8 @@ app.post("/setup", async (c) => {
   const pin = requireString(body.pin, "pin");
   if (!/^\d{4,6}$/.test(pin)) throw new HttpError(400, "PIN must be 4-6 digits");
   const petName = requireString(body.petName, "petName");
-  const familyId = newId();
   const pinHash = await bcrypt.hash(pin, 10);
   const family: FamilyMeta = {
-    familyId,
     streak: 0,
     pet: {
       name: petName,
@@ -171,30 +200,29 @@ app.post("/setup", async (c) => {
         createdAt: new Date().toISOString(),
       },
     ];
-    for (const t of seeds) await putTemplate(familyId, t);
+    for (const t of seeds) await putTemplate(t);
   }
 
-  const resp: SetupResponse = { familyId, family };
+  const resp: SetupResponse = { family };
   return c.json(resp);
 });
 
 // ------- GET /state ------------------------------------------------------
 
 app.get("/state", async (c) => {
-  const familyId = requireString(c.req.query("familyId"), "familyId");
   const date = c.req.query("date") || todayKey();
   const includeHistory = c.req.query("history") === "1";
-  const state = await loadState(familyId, date, includeHistory);
+  const state = await loadState(date, includeHistory);
   return c.json(state satisfies TodayState);
 });
 
 async function loadState(
-  familyId: string,
   date: string,
   includeHistory: boolean,
 ): Promise<TodayState> {
-  const fam = await getFamily(familyId);
-  if (!fam) throw new HttpError(404, "Family not found");
+  const rawFam = await getFamily();
+  if (!rawFam) throw new HttpError(404, "Family not found");
+  const fam = toFamilyMeta(rawFam);
   const week = weekStartKey(new Date(date));
   const weekEnd = endOfWeek(week);
 
@@ -204,11 +232,11 @@ async function loadState(
   const histEnd = weekEnd;
 
   const [templates, completionsAll, adhoc, rewards, claims] = await Promise.all([
-    listTemplates(familyId),
-    listCompletions(familyId, histStart, histEnd),
-    listAdhoc(familyId, date),
-    listRewards(familyId),
-    listClaims(familyId, "pending"),
+    listTemplates(),
+    listCompletions("SINGLETON", histStart, histEnd),
+    listAdhoc(date),
+    listRewards(),
+    listClaims("pending"),
   ]);
 
   // Filter completions to this week for buildTodayState's progress calc.
@@ -228,7 +256,7 @@ async function loadState(
   }
 
   return buildTodayState(
-    stripPinHash(fam),
+    fam,
     templates,
     thisWeek,
     adhoc,
@@ -240,25 +268,20 @@ async function loadState(
 }
 
 function endOfWeek(weekStart: string): string {
-  const d = new Date(`${weekStart}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 6);
-  return todayKey(d);
-}
-
-function stripPinHash(rec: FamilyMeta & { pinHash?: string }): FamilyMeta {
-  const { pinHash, ...rest } = rec as FamilyMeta & { pinHash?: string };
-  return rest as FamilyMeta;
+  const [y, m, d] = weekStart.split("-").map(Number);
+  const date = new Date(y, m - 1, d + 6);
+  return todayKey(date);
 }
 
 // ------- POST /complete --------------------------------------------------
 
 app.post("/complete", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Partial<CompleteRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const date = body.date || todayKey();
 
-  const fam = await getFamily(familyId);
-  if (!fam) throw new HttpError(404, "Family not found");
+  const rawFam = await getFamily();
+  if (!rawFam) throw new HttpError(404, "Family not found");
+  let fam = toFamilyMeta(rawFam);
 
   let xpDelta = 0;
   let leveledUp = false;
@@ -266,62 +289,92 @@ app.post("/complete", async (c) => {
 
   // Branch: ad-hoc vs template completion.
   if (body.adhocId) {
-    const adhoc = await getAdhoc(familyId, date, body.adhocId);
+    const adhoc = await getAdhoc(date, body.adhocId);
     if (!adhoc) throw new HttpError(404, "Ad-hoc task not found");
     const wasDone = adhoc.done;
-    await putAdhoc(familyId, { ...adhoc, done: !wasDone });
+    await putAdhoc({ ...adhoc, done: !wasDone });
     if (!wasDone) {
       const r = awardXp(fam.pet, XP_PER.adhoc);
-      await updateFamily(familyId, { pet: r.pet });
+      await updateFamily({ pet: r.pet });
       fam.pet = r.pet;
       xpDelta = r.xpDelta;
       leveledUp = r.leveledUp;
       unlocked = r.unlocked;
     } else {
       const newPet = reverseXp(fam.pet, XP_PER.adhoc);
-      await updateFamily(familyId, { pet: newPet });
+      await updateFamily({ pet: newPet });
       fam.pet = newPet;
       xpDelta = -XP_PER.adhoc;
     }
   } else if (body.templateId) {
-    const templates = await listTemplates(familyId);
+    const templates = await listTemplates();
     const tpl = templates.find((t) => t.id === body.templateId);
     if (!tpl) throw new HttpError(404, "Template not found");
-    const existing = await getCompletion(familyId, tpl.id, date);
+    const existing = await getCompletion(tpl.id, date);
     const xp = xpForTask(tpl);
-    if (existing) {
-      await deleteCompletion(familyId, tpl.id, date);
-      const newPet = reverseXp(fam.pet, xp);
-      await updateFamily(familyId, { pet: newPet });
-      fam.pet = newPet;
-      xpDelta = -xp;
+
+    if (tpl.weeklyTrack === "cumulative") {
+      // Cumulative: set amount for this day (0 or missing = remove).
+      const amount = Math.max(0, Math.floor(Number(body.amount) || 0));
+      if (amount > 0) {
+        const isNew = !existing;
+        await putCompletion({
+          templateId: tpl.id,
+          date,
+          completedAt: existing?.completedAt ?? new Date().toISOString(),
+          amount,
+        });
+        if (isNew) {
+          const r = awardXp(fam.pet, xp);
+          await updateFamily({ pet: r.pet });
+          fam.pet = r.pet;
+          xpDelta = r.xpDelta;
+          leveledUp = r.leveledUp;
+          unlocked = r.unlocked;
+        }
+      } else if (existing) {
+        await deleteCompletion(tpl.id, date);
+        const newPet = reverseXp(fam.pet, xp);
+        await updateFamily({ pet: newPet });
+        fam.pet = newPet;
+        xpDelta = -xp;
+      }
     } else {
-      await putCompletion(familyId, {
-        templateId: tpl.id,
-        date,
-        completedAt: new Date().toISOString(),
-      });
-      const r = awardXp(fam.pet, xp);
-      await updateFamily(familyId, { pet: r.pet });
-      fam.pet = r.pet;
-      xpDelta = r.xpDelta;
-      leveledUp = r.leveledUp;
-      unlocked = r.unlocked;
+      // Sessions (legacy): toggle a completion row.
+      if (existing) {
+        await deleteCompletion(tpl.id, date);
+        const newPet = reverseXp(fam.pet, xp);
+        await updateFamily({ pet: newPet });
+        fam.pet = newPet;
+        xpDelta = -xp;
+      } else {
+        await putCompletion({
+          templateId: tpl.id,
+          date,
+          completedAt: new Date().toISOString(),
+        });
+        const r = awardXp(fam.pet, xp);
+        await updateFamily({ pet: r.pet });
+        fam.pet = r.pet;
+        xpDelta = r.xpDelta;
+        leveledUp = r.leveledUp;
+        unlocked = r.unlocked;
+      }
     }
   } else {
     throw new HttpError(400, "Provide either templateId or adhocId");
   }
 
   // Re-load state and check full-day bonus.
-  let state = await loadState(familyId, date, false);
+  let state = await loadState(date, false);
   const bonusResult = maybeAwardFullDayBonus(state.family, state, date);
   if (bonusResult.bonus > 0) {
-    await updateFamily(familyId, {
+    await updateFamily({
       pet: bonusResult.family.pet,
       streak: bonusResult.family.streak,
       lastStreakDate: bonusResult.family.lastStreakDate,
     });
-    state = await loadState(familyId, date, false);
+    state = await loadState(date, false);
     xpDelta += bonusResult.bonus;
     if (bonusResult.family.pet.level > fam.pet.level) leveledUp = true;
   }
@@ -334,7 +387,6 @@ app.post("/complete", async (c) => {
 
 app.post("/adhoc", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Partial<AdhocRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const title = requireString(body.title, "title");
   const emoji = body.emoji || "✨";
   const date = body.date || todayKey();
@@ -346,7 +398,7 @@ app.post("/adhoc", async (c) => {
     date,
     done: false,
   };
-  await putAdhoc(familyId, a);
+  await putAdhoc(a);
   return c.json(a);
 });
 
@@ -354,29 +406,30 @@ app.post("/adhoc", async (c) => {
 
 app.post("/templates", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Partial<CreateTemplateRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(familyId, pin))) throw new HttpError(403, "Wrong PIN");
+  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
   const cadence = body.cadence === "weekly" ? "weekly" : "daily";
+  const weeklyTrack = cadence === "weekly" && body.weeklyTrack === "cumulative" ? "cumulative" as const : undefined;
+  const maxTarget = weeklyTrack === "cumulative" ? 99999 : 7;
   const t: TaskTemplate = {
     id: newId(),
     title: requireString(body.title, "title"),
     emoji: body.emoji || (cadence === "weekly" ? "📅" : "✅"),
     cadence,
-    weeklyTarget: cadence === "weekly" ? Math.max(1, Math.min(7, body.weeklyTarget ?? 1)) : 1,
+    weeklyTarget: cadence === "weekly" ? Math.max(1, Math.min(maxTarget, body.weeklyTarget ?? 1)) : 1,
+    weeklyTrack,
     createdAt: new Date().toISOString(),
   };
-  await putTemplate(familyId, t);
+  await putTemplate(t);
   return c.json(t);
 });
 
 app.patch("/templates/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as Partial<UpdateTemplateRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(familyId, pin))) throw new HttpError(403, "Wrong PIN");
-  const templates = await listTemplates(familyId);
+  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
+  const templates = await listTemplates();
   const existing = templates.find((t) => t.id === id);
   if (!existing) throw new HttpError(404, "Template not found");
   const updated: TaskTemplate = {
@@ -384,22 +437,28 @@ app.patch("/templates/:id", async (c) => {
     title: body.title?.trim() || existing.title,
     emoji: body.emoji || existing.emoji,
     cadence: body.cadence ?? existing.cadence,
+    weeklyTrack:
+      (body.cadence ?? existing.cadence) === "weekly"
+        ? (body.weeklyTrack ?? existing.weeklyTrack) === "cumulative" ? "cumulative" : undefined
+        : undefined,
     weeklyTarget:
       body.cadence === "weekly" || (body.cadence === undefined && existing.cadence === "weekly")
-        ? Math.max(1, Math.min(7, body.weeklyTarget ?? existing.weeklyTarget))
+        ? Math.max(1, Math.min(
+            ((body.weeklyTrack ?? existing.weeklyTrack) === "cumulative" ? 99999 : 7),
+            body.weeklyTarget ?? existing.weeklyTarget,
+          ))
         : 1,
   };
-  await putTemplate(familyId, updated);
+  await putTemplate(updated);
   return c.json(updated);
 });
 
 app.delete("/templates/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as Partial<DeleteTemplateRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(familyId, pin))) throw new HttpError(403, "Wrong PIN");
-  await deleteTemplate(familyId, id);
+  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
+  await deleteTemplate(id);
   return c.json({ ok: true });
 });
 
@@ -407,9 +466,8 @@ app.delete("/templates/:id", async (c) => {
 
 app.post("/rewards", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Partial<CreateRewardRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(familyId, pin))) throw new HttpError(403, "Wrong PIN");
+  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
   const cost = Math.max(1, Math.min(10000, Number(body.cost) || 50));
   const r: Reward = {
     id: newId(),
@@ -418,17 +476,16 @@ app.post("/rewards", async (c) => {
     cost,
     createdAt: new Date().toISOString(),
   };
-  await putReward(familyId, r);
+  await putReward(r);
   return c.json(r);
 });
 
 app.delete("/rewards/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as Partial<DeleteRewardRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(familyId, pin))) throw new HttpError(403, "Wrong PIN");
-  await deleteReward(familyId, id);
+  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
+  await deleteReward(id);
   return c.json({ ok: true });
 });
 
@@ -436,17 +493,17 @@ app.delete("/rewards/:id", async (c) => {
 // double-claim). Goes "pending" until parent approves with PIN; deny = refund.
 app.post("/claims", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Partial<ClaimRewardRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const rewardId = requireString(body.rewardId, "rewardId");
-  const fam = await getFamily(familyId);
-  if (!fam) throw new HttpError(404, "Family not found");
-  const reward = await getReward(familyId, rewardId);
+  const rawFam = await getFamily();
+  if (!rawFam) throw new HttpError(404, "Family not found");
+  const fam = toFamilyMeta(rawFam);
+  const reward = await getReward(rewardId);
   if (!reward) throw new HttpError(404, "Reward not found");
   if (fam.pet.xp < reward.cost) {
     throw new HttpError(400, `Not enough XP. Need ${reward.cost}, have ${fam.pet.xp}.`);
   }
   const newPet = reverseXp(fam.pet, reward.cost);
-  await updateFamily(familyId, { pet: newPet });
+  await updateFamily({ pet: newPet });
   const claim: RewardClaim = {
     id: newId(),
     rewardId: reward.id,
@@ -456,7 +513,7 @@ app.post("/claims", async (c) => {
     status: "pending",
     claimedAt: new Date().toISOString(),
   };
-  await putClaim(familyId, claim);
+  await putClaim(claim);
   return c.json(claim);
 });
 
@@ -465,26 +522,26 @@ app.post("/claims", async (c) => {
 app.post("/claims/:id/resolve", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as Partial<ResolveClaimRequest>;
-  const familyId = requireString(body.familyId, "familyId");
   const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(familyId, pin))) throw new HttpError(403, "Wrong PIN");
+  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
 
-  const claims = await listClaims(familyId);
+  const claims = await listClaims();
   const claim = claims.find((cl) => cl.id === id);
   if (!claim) throw new HttpError(404, "Claim not found");
   if (claim.status !== "pending") throw new HttpError(400, "Claim already resolved");
 
-  await putClaim(familyId, {
+  await putClaim({
     ...claim,
     status: body.approve ? "approved" : "denied",
     resolvedAt: new Date().toISOString(),
   });
 
   if (!body.approve) {
-    const fam = await getFamily(familyId);
-    if (fam) {
+    const rawFam = await getFamily();
+    if (rawFam) {
+      const fam = toFamilyMeta(rawFam);
       const r = awardXp(fam.pet, claim.cost);
-      await updateFamily(familyId, { pet: r.pet });
+      await updateFamily({ pet: r.pet });
     }
   }
   return c.json({ ok: true });
@@ -493,10 +550,9 @@ app.post("/claims/:id/resolve", async (c) => {
 // ------- POST /verify-pin (used by parent panel gate) --------------------
 
 app.post("/verify-pin", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { familyId?: string; pin?: string };
-  const familyId = requireString(body.familyId, "familyId");
+  const body = (await c.req.json().catch(() => ({}))) as { pin?: string };
   const pin = requireString(body.pin, "pin");
-  const ok = await checkPin(familyId, pin);
+  const ok = await checkPin(pin);
   if (!ok) throw new HttpError(403, "Wrong PIN");
   return c.json({ ok: true });
 });

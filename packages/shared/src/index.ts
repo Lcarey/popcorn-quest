@@ -4,13 +4,17 @@
 
 export type Cadence = "daily" | "weekly";
 
+/** Weekly templates: count distinct days vs sum numeric units across the week. */
+export type WeeklyTrack = "sessions" | "cumulative";
+
 export interface TaskTemplate {
   id: string;
   title: string;
   emoji: string;
   cadence: Cadence;
-  // For weekly tasks: how many times per week (e.g., clarinet 3x). Daily = 1.
+  // sessions = times per week (1–7); cumulative = total units (e.g. 500). Daily = 1.
   weeklyTarget: number;
+  weeklyTrack?: WeeklyTrack;
   createdAt: string; // ISO
 }
 
@@ -30,6 +34,8 @@ export interface Completion {
   // distinct dates. For daily tasks, at most one per date.
   date: string; // yyyy-mm-dd
   completedAt: string; // ISO
+  /** Cumulative weekly: units logged that day. Omit = 1 (legacy ticks). */
+  amount?: number;
 }
 
 export interface PetState {
@@ -48,7 +54,6 @@ export interface PetState {
 export type PetMood = "sleepy" | "neutral" | "happy" | "ecstatic";
 
 export interface FamilyMeta {
-  familyId: string;
   pet: PetState;
   streak: number; // consecutive days with all daily tasks complete
   lastStreakDate?: string; // yyyy-mm-dd of last all-done day
@@ -81,7 +86,6 @@ export interface RewardClaim {
 }
 
 export interface CreateRewardRequest {
-  familyId: string;
   pin: string;
   title: string;
   emoji: string;
@@ -89,17 +93,14 @@ export interface CreateRewardRequest {
 }
 
 export interface DeleteRewardRequest {
-  familyId: string;
   pin: string;
 }
 
 export interface ClaimRewardRequest {
-  familyId: string;
   rewardId: string;
 }
 
 export interface ResolveClaimRequest {
-  familyId: string;
   pin: string;
   approve: boolean;
 }
@@ -120,12 +121,14 @@ export interface WeeklyTaskView {
   // Whether already completed for this specific date (you can only tick a
   // weekly task once per day, but multiple times per week).
   completedToday: boolean;
+  /** Cumulative weekly only: units logged for this view's date. */
+  amountToday?: number;
 }
 
 export interface TodayState {
   family: FamilyMeta;
   date: string; // yyyy-mm-dd (the date this view is for)
-  weekStart: string; // yyyy-mm-dd (Monday of this week)
+  weekStart: string; // yyyy-mm-dd (Sunday of this week)
   daily: DailyTaskView[];
   weekly: WeeklyTaskView[];
   adhoc: AdhocTask[];
@@ -157,17 +160,17 @@ export interface SetupRequest {
 }
 
 export interface SetupResponse {
-  familyId: string;
   family: FamilyMeta;
 }
 
 export interface CompleteRequest {
-  familyId: string;
   templateId?: string;
   adhocId?: string;
   date: string; // yyyy-mm-dd
   // toggle: if currently complete, undo
   toggle?: boolean;
+  /** Cumulative weekly: units for this date. */
+  amount?: number;
 }
 
 export interface CompleteResponse {
@@ -179,32 +182,30 @@ export interface CompleteResponse {
 }
 
 export interface AdhocRequest {
-  familyId: string;
   title: string;
   emoji: string;
   date: string;
 }
 
 export interface CreateTemplateRequest {
-  familyId: string;
   pin: string;
   title: string;
   emoji: string;
   cadence: Cadence;
   weeklyTarget?: number;
+  weeklyTrack?: WeeklyTrack;
 }
 
 export interface UpdateTemplateRequest {
-  familyId: string;
   pin: string;
   title?: string;
   emoji?: string;
   cadence?: Cadence;
   weeklyTarget?: number;
+  weeklyTrack?: WeeklyTrack;
 }
 
 export interface DeleteTemplateRequest {
-  familyId: string;
   pin: string;
 }
 
@@ -289,12 +290,11 @@ export function todayKey(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-// Returns yyyy-mm-dd of Monday in the same ISO week as `d`.
+// Returns yyyy-mm-dd of Sunday (local) for the week containing `d`.
 export function weekStartKey(d: Date = new Date()): string {
   const date = new Date(d);
   const day = date.getDay(); // 0=Sun..6=Sat
-  const diff = day === 0 ? -6 : 1 - day; // shift to Monday
-  date.setDate(date.getDate() + diff);
+  date.setDate(date.getDate() - day);
   return todayKey(date);
 }
 

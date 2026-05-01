@@ -46,8 +46,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   setup: (body: SetupRequest) =>
     req<SetupResponse>("/setup", { method: "POST", body: JSON.stringify(body) }),
-  state: (familyId: string, date?: string, history = false) => {
-    const q = new URLSearchParams({ familyId });
+  state: (date?: string, history = false) => {
+    const q = new URLSearchParams();
     if (date) q.set("date", date);
     if (history) q.set("history", "1");
     return req<TodayState>(`/state?${q.toString()}`);
@@ -62,10 +62,10 @@ export const api = {
     req<TaskTemplate>(`/templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteTemplate: (id: string, body: DeleteTemplateRequest) =>
     req<{ ok: true }>(`/templates/${id}`, { method: "DELETE", body: JSON.stringify(body) }),
-  verifyPin: (familyId: string, pin: string) =>
+  verifyPin: (pin: string) =>
     req<{ ok: true }>("/verify-pin", {
       method: "POST",
-      body: JSON.stringify({ familyId, pin }),
+      body: JSON.stringify({ pin }),
     }),
   // Rewards
   createReward: (body: CreateRewardRequest) =>

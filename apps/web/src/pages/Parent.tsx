@@ -1,25 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import type { Cadence, Reward, RewardClaim, TaskTemplate } from "@popcorn/shared";
+import type { Cadence, Reward, RewardClaim, TaskTemplate, WeeklyTrack } from "@popcorn/shared";
 import { todayKey } from "@popcorn/shared";
 import { api } from "../api";
 import { useApp } from "../store";
 import { COSMETICS } from "@popcorn/shared";
 
 export function Parent() {
-  const { familyId, parentPin } = useApp();
+  const { parentPin } = useApp();
   const nav = useNavigate();
-  if (!familyId) {
-    nav("/setup", { replace: true });
-    return null;
-  }
   if (!parentPin) return <PinGate />;
   return <ParentPanel />;
 }
 
 function PinGate() {
-  const { familyId, setParentPin } = useApp();
+  const { setParentPin } = useApp();
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -48,11 +44,10 @@ function PinGate() {
           className="btn-primary w-full"
           disabled={pin.length < 4 || submitting}
           onClick={async () => {
-            if (!familyId) return;
             setSubmitting(true);
             setError(null);
             try {
-              await api.verifyPin(familyId, pin);
+              await api.verifyPin(pin);
               setParentPin(pin);
             } catch (e) {
               setError("That PIN didn't work. Try again.");
@@ -69,36 +64,35 @@ function PinGate() {
 }
 
 function ParentPanel() {
-  const { familyId, parentPin, setParentPin } = useApp();
+  const { parentPin, setParentPin } = useApp();
   const qc = useQueryClient();
   const date = todayKey();
   const stateQuery = useQuery({
-    queryKey: ["state", familyId, date],
-    queryFn: () => api.state(familyId!, date),
-    enabled: !!familyId,
+    queryKey: ["state", date],
+    queryFn: () => api.state(date),
   });
 
   const [showCreate, setShowCreate] = useState(false);
 
   const createMut = useMutation({
-    mutationFn: (vars: { title: string; emoji: string; cadence: Cadence; weeklyTarget: number }) =>
-      api.createTemplate({ familyId: familyId!, pin: parentPin!, ...vars }),
+    mutationFn: (vars: { title: string; emoji: string; cadence: Cadence; weeklyTarget: number; weeklyTrack?: WeeklyTrack }) =>
+      api.createTemplate({ pin: parentPin!, ...vars }),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["state", familyId, date] });
+      await qc.invalidateQueries({ queryKey: ["state", date] });
       setShowCreate(false);
     },
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: string) =>
-      api.deleteTemplate(id, { familyId: familyId!, pin: parentPin! }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["state", familyId, date] }),
+      api.deleteTemplate(id, { pin: parentPin! }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["state", date] }),
   });
 
   const updateMut = useMutation({
     mutationFn: ({ id, title, emoji, weeklyTarget }: { id: string; title?: string; emoji?: string; weeklyTarget?: number }) =>
-      api.updateTemplate(id, { familyId: familyId!, pin: parentPin!, title, emoji, weeklyTarget }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["state", familyId, date] }),
+      api.updateTemplate(id, { pin: parentPin!, title, emoji, weeklyTarget }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["state", date] }),
   });
 
   const templates: TaskTemplate[] = stateQuery.data
@@ -171,9 +165,8 @@ function ParentPanel() {
         <RewardsManager
           rewards={stateQuery.data.rewards}
           pendingClaims={stateQuery.data.pendingClaims}
-          familyId={familyId!}
           pin={parentPin!}
-          onChange={() => qc.invalidateQueries({ queryKey: ["state", familyId, date] })}
+          onChange={() => qc.invalidateQueries({ queryKey: ["state", date] })}
         />
       )}
 
@@ -183,15 +176,6 @@ function ParentPanel() {
           unlocked={stateQuery.data.family.pet.unlocked}
         />
       )}
-
-      <Section title="Sync to another device">
-        <div className="card text-sm">
-          <div className="text-cocoa/70 mb-2">
-            Open the app on the other device and paste this Family ID into the setup screen's "I already have a family" link.
-          </div>
-          <code className="block w-full p-3 bg-white rounded-xl select-all break-all text-xs">{familyId}</code>
-        </div>
-      </Section>
     </div>
   );
 }
@@ -201,12 +185,15 @@ function CreateTemplateForm({
   onSubmit,
 }: {
   onCancel: () => void;
-  onSubmit: (v: { title: string; emoji: string; cadence: Cadence; weeklyTarget: number }) => void;
+  onSubmit: (v: { title: string; emoji: string; cadence: Cadence; weeklyTarget: number; weeklyTrack?: WeeklyTrack }) => void;
 }) {
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("✅");
   const [cadence, setCadence] = useState<Cadence>("daily");
+  const [weeklyTrack, setWeeklyTrack] = useState<WeeklyTrack>("sessions");
   const [target, setTarget] = useState(3);
+  const isCumulative = cadence === "weekly" && weeklyTrack === "cumulative";
+  const maxTarget = isCumulative ? 99999 : 7;
 
   return (
     <div className="card space-y-3">
@@ -246,17 +233,44 @@ function CreateTemplateForm({
         </div>
       </div>
       {cadence === "weekly" && (
-        <div>
-          <label className="text-sm font-semibold text-cocoa/70 block mb-1">Times per week</label>
-          <input
-            type="number"
-            min={1}
-            max={7}
-            value={target}
-            onChange={(e) => setTarget(Math.max(1, Math.min(7, Number(e.target.value) || 1)))}
-            className="w-24 px-3 py-2 rounded-xl bg-white border-2 border-white shadow-inner text-center"
-          />
-        </div>
+        <>
+          <div className="flex bg-white rounded-2xl p-1">
+            <button
+              onClick={() => { setWeeklyTrack("sessions"); setTarget(Math.min(target, 7)); }}
+              className={[
+                "flex-1 py-2 rounded-xl font-display font-semibold text-sm",
+                weeklyTrack === "sessions" ? "bg-lilac text-white" : "text-cocoa",
+              ].join(" ")}
+            >
+              Times per week
+            </button>
+            <button
+              onClick={() => setWeeklyTrack("cumulative")}
+              className={[
+                "flex-1 py-2 rounded-xl font-display font-semibold text-sm",
+                weeklyTrack === "cumulative" ? "bg-lilac text-white" : "text-cocoa",
+              ].join(" ")}
+            >
+              Total per week
+            </button>
+          </div>
+          <div>
+            <label className="text-sm font-semibold text-cocoa/70 block mb-1">
+              {isCumulative ? "Weekly goal" : "Times per week"}
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={maxTarget}
+              value={target}
+              onChange={(e) => setTarget(Math.max(1, Math.min(maxTarget, Number(e.target.value) || 1)))}
+              className="w-28 px-3 py-2 rounded-xl bg-white border-2 border-white shadow-inner text-center"
+            />
+            {isCumulative && (
+              <span className="text-xs text-cocoa/50 ml-2">e.g. 50 jumps, 500 pucks</span>
+            )}
+          </div>
+        </>
       )}
       <div className="flex gap-2">
         <button onClick={onCancel} className="btn-ghost flex-1">
@@ -271,6 +285,7 @@ function CreateTemplateForm({
               emoji: emoji || (cadence === "weekly" ? "📅" : "✅"),
               cadence,
               weeklyTarget: cadence === "weekly" ? target : 1,
+              weeklyTrack: cadence === "weekly" ? weeklyTrack : undefined,
             })
           }
         >
@@ -294,6 +309,8 @@ function TemplateCard({
   const [title, setTitle] = useState(template.title);
   const [emoji, setEmoji] = useState(template.emoji);
   const [target, setTarget] = useState(template.weeklyTarget);
+  const isCumulative = template.weeklyTrack === "cumulative";
+  const maxTarget = isCumulative ? 99999 : 7;
 
   return (
     <div className="card flex items-start gap-3">
@@ -316,9 +333,9 @@ function TemplateCard({
                 <input
                   type="number"
                   min={1}
-                  max={7}
+                  max={maxTarget}
                   value={target}
-                  onChange={(e) => setTarget(Math.max(1, Math.min(7, Number(e.target.value) || 1)))}
+                  onChange={(e) => setTarget(Math.max(1, Math.min(maxTarget, Number(e.target.value) || 1)))}
                   className="w-20 px-2 py-2 rounded-xl bg-white border-2 border-white shadow-inner text-center"
                 />
               )}
@@ -341,7 +358,11 @@ function TemplateCard({
           <>
             <div className="font-display font-semibold">{template.title}</div>
             <div className="text-xs text-cocoa/70">
-              {template.cadence === "daily" ? "Daily" : `Weekly • ${template.weeklyTarget}x`}
+              {template.cadence === "daily"
+                ? "Daily"
+                : isCumulative
+                  ? `Weekly goal · ${template.weeklyTarget}`
+                  : `Weekly · ${template.weeklyTarget}x`}
             </div>
           </>
         )}
@@ -381,13 +402,11 @@ function Empty({ children }: { children: React.ReactNode }) {
 function RewardsManager({
   rewards,
   pendingClaims,
-  familyId,
   pin,
   onChange,
 }: {
   rewards: Reward[];
   pendingClaims: RewardClaim[];
-  familyId: string;
   pin: string;
   onChange: () => void;
 }) {
@@ -395,7 +414,7 @@ function RewardsManager({
 
   const createMut = useMutation({
     mutationFn: (vars: { title: string; emoji: string; cost: number }) =>
-      api.createReward({ familyId, pin, ...vars }),
+      api.createReward({ pin, ...vars }),
     onSuccess: () => {
       onChange();
       setShowCreate(false);
@@ -403,13 +422,13 @@ function RewardsManager({
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => api.deleteReward(id, { familyId, pin }),
+    mutationFn: (id: string) => api.deleteReward(id, { pin }),
     onSuccess: onChange,
   });
 
   const resolveMut = useMutation({
     mutationFn: (vars: { id: string; approve: boolean }) =>
-      api.resolveClaim(vars.id, { familyId, pin, approve: vars.approve }),
+      api.resolveClaim(vars.id, { pin, approve: vars.approve }),
     onSuccess: onChange,
   });
 

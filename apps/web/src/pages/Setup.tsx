@@ -1,19 +1,16 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { useApp } from "../store";
 
-type Step = "welcome" | "petName" | "pin" | "creating" | "existing";
+type Step = "welcome" | "petName" | "pin" | "creating";
 
 export function Setup() {
-  const { setFamilyId } = useApp();
   const nav = useNavigate();
   const [step, setStep] = useState<Step>("welcome");
   const [petName, setPetName] = useState("Popcorn");
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [existingId, setExistingId] = useState("");
 
   async function createFamily() {
     setError(null);
@@ -21,25 +18,11 @@ export function Setup() {
     if (pin !== pin2) return setError("Those PINs don't match.");
     setStep("creating");
     try {
-      const resp = await api.setup({ petName, pin, seedExamples: true });
-      setFamilyId(resp.familyId);
+      await api.setup({ petName, pin, seedExamples: true });
       nav("/", { replace: true });
     } catch (e: any) {
       setError(e?.message || "Couldn't set up. Try again.");
       setStep("pin");
-    }
-  }
-
-  async function joinExisting() {
-    setError(null);
-    if (!existingId.trim()) return setError("Paste your Family ID.");
-    try {
-      // Probe by fetching state — proves the family exists.
-      await api.state(existingId.trim());
-      setFamilyId(existingId.trim());
-      nav("/", { replace: true });
-    } catch (e: any) {
-      setError("Couldn't find that family. Check the ID and try again.");
     }
   }
 
@@ -56,33 +39,6 @@ export function Setup() {
           <button className="btn-primary w-full" onClick={() => setStep("petName")}>
             Let's start! 🚀
           </button>
-          <button className="btn-ghost w-full" onClick={() => setStep("existing")}>
-            I already have a family
-          </button>
-        </div>
-      )}
-
-      {step === "existing" && (
-        <div className="card space-y-3">
-          <h2 className="font-display font-bold text-xl">Join existing family</h2>
-          <p className="text-sm text-cocoa/70">
-            Paste the Family ID from another device's Parent zone.
-          </p>
-          <input
-            value={existingId}
-            onChange={(e) => setExistingId(e.target.value.trim())}
-            placeholder="Family ID"
-            className="w-full px-4 py-3 rounded-2xl bg-white border-2 border-white shadow-inner font-mono text-sm focus:outline-none focus:border-coral"
-          />
-          {error && <div className="text-coral font-semibold text-sm">{error}</div>}
-          <div className="flex gap-2">
-            <button className="btn-ghost flex-1" onClick={() => setStep("welcome")}>
-              Back
-            </button>
-            <button className="btn-primary flex-1" onClick={joinExisting}>
-              Join
-            </button>
-          </div>
         </div>
       )}
 

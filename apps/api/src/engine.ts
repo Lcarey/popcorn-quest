@@ -111,11 +111,18 @@ export function buildTodayState(
         completedToday: todaysCompletions.has(t.id),
       });
     } else {
+      const completions = weeklyDoneByTemplate.get(t.id) ?? [];
+      const isCumulative = t.weeklyTrack === "cumulative";
+      const doneThisWeek = isCumulative
+        ? completions.reduce((sum, c) => sum + (c.amount ?? 1), 0)
+        : completions.length;
+      const todayCompletion = completions.find((c) => c.date === date);
       weekly.push({
         template: t,
         target: t.weeklyTarget,
-        doneThisWeek: weeklyDoneByTemplate.get(t.id)?.length ?? 0,
+        doneThisWeek,
         completedToday: todaysCompletions.has(t.id),
+        amountToday: isCumulative ? (todayCompletion?.amount ?? 0) : undefined,
       });
     }
   }

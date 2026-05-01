@@ -14,6 +14,7 @@ import { Popcorn, type PopcornHandle } from "../components/Popcorn";
 import { XpBar } from "../components/XpBar";
 import { TaskRow } from "../components/TaskRow";
 import { WeeklyRow } from "../components/WeeklyRow";
+import { CumulativeWeeklyRow } from "../components/CumulativeWeeklyRow";
 import { AddQuestSheet } from "../components/AddQuestSheet";
 import { CelebrateToast } from "../components/CelebrateToast";
 import { HistoryHeatmap } from "../components/HistoryHeatmap";
@@ -27,15 +28,13 @@ import {
 } from "../lib/feedback";
 
 export function Home() {
-  const { familyId } = useApp();
   const date = todayKey();
   const qc = useQueryClient();
   const popcornRef = useRef<PopcornHandle>(null);
 
   const stateQuery = useQuery({
-    queryKey: ["state", familyId, date],
-    queryFn: () => api.state(familyId!, date, true),
-    enabled: !!familyId,
+    queryKey: ["state", date],
+    queryFn: () => api.state(date, true),
   });
 
   const [celebrate, setCelebrate] = useState<CompleteResponse | null>(null);
@@ -45,11 +44,11 @@ export function Home() {
   // fire feedback; the server response 100-300ms later overwrites the rest
   // (XP, level, progress, history, etc.).
   const completeMut = useMutation({
-    mutationFn: (vars: { templateId?: string; adhocId?: string }) =>
-      api.complete({ familyId: familyId!, date, ...vars }),
+    mutationFn: (vars: { templateId?: string; adhocId?: string; amount?: number }) =>
+      api.complete({ date, ...vars }),
     onMutate: async (vars) => {
-      await qc.cancelQueries({ queryKey: ["state", familyId, date] });
-      const prev = qc.getQueryData<TodayState>(["state", familyId, date]);
+      await qc.cancelQueries({ queryKey: ["state", date] });
+      const prev = qc.getQueryData<TodayState>(["state", date]);
       if (!prev) return { prev };
 
       const next = structuredClone(prev) as TodayState;
@@ -62,9 +61,18 @@ export function Home() {
           willComplete = !daily.completedToday;
           daily.completedToday = willComplete;
         } else if (weekly) {
-          willComplete = !weekly.completedToday;
-          weekly.completedToday = willComplete;
-          weekly.doneThisWeek += willComplete ? 1 : -1;
+          if (weekly.template.weeklyTrack === "cumulative" && vars.amount !== undefined) {
+            const oldAmount = weekly.amountToday ?? 0;
+            const newAmount = vars.amount;
+            weekly.doneThisWeek += newAmount - oldAmount;
+            weekly.amountToday = newAmount;
+            weekly.completedToday = newAmount > 0;
+            willComplete = newAmount > 0 && oldAmount === 0;
+          } else {
+            willComplete = !weekly.completedToday;
+            weekly.completedToday = willComplete;
+            weekly.doneThisWeek += willComplete ? 1 : -1;
+          }
         }
       } else if (vars.adhocId) {
         const a = next.adhoc.find((x) => x.id === vars.adhocId);
@@ -82,14 +90,14 @@ export function Home() {
         playUncheck();
       }
 
-      qc.setQueryData(["state", familyId, date], next);
+      qc.setQueryData(["state", date], next);
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) qc.setQueryData(["state", familyId, date], ctx.prev);
+      if (ctx?.prev) qc.setQueryData(["state", date], ctx.prev);
     },
     onSuccess: (resp) => {
-      qc.setQueryData(["state", familyId, date], resp.state);
+      qc.setQueryData(["state", date], resp.state);
       if (resp.leveledUp) {
         playLevelUp();
         vibrate([30, 60, 30]);
@@ -103,29 +111,27 @@ export function Home() {
 
   const adhocMut = useMutation({
     mutationFn: (vars: { title: string; emoji: string }) =>
-      api.adhoc({ familyId: familyId!, title: vars.title, emoji: vars.emoji, date }),
+      api.adhoc({ title: vars.title, emoji: vars.emoji, date }),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["state", familyId, date] });
+      await qc.invalidateQueries({ queryKey: ["state", date] });
     },
   });
 
   const claimMut = useMutation({
     mutationFn: (reward: Reward) =>
-      api.claimReward({ familyId: familyId!, rewardId: reward.id }),
+      api.claimReward({ rewardId: reward.id }),
     onSuccess: async () => {
       playClaim();
       vibrate(40);
-      await qc.invalidateQueries({ queryKey: ["state", familyId, date] });
+      await qc.invalidateQueries({ queryKey: ["state", date] });
     },
   });
 
   useEffect(() => {
-    const onVis = () => qc.invalidateQueries({ queryKey: ["state", familyId, date] });
+    const onVis = () => qc.invalidateQueries({ queryKey: ["state", date] });
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [qc, familyId, date]);
-
-  if (!familyId) return null;
+  }, [qc, date]);
 
   const state = stateQuery.data;
   const mood = state ? moodFromProgress(state.todayProgress) : "neutral";
@@ -183,17 +189,29 @@ export function Home() {
       {state && state.weekly.length > 0 && (
         <Section title="This week">
           <div className="space-y-2">
-            {state.weekly.map((w) => (
-              <WeeklyRow
-                key={w.template.id}
-                emoji={w.template.emoji}
-                title={w.template.title}
-                doneCount={w.doneThisWeek}
-                target={w.target}
-                done={w.completedToday}
-                onTick={() => completeMut.mutate({ templateId: w.template.id })}
-              />
-            ))}
+            {state.weekly.map((w) =>
+              w.template.weeklyTrack === "cumulative" ? (
+                <CumulativeWeeklyRow
+                  key={w.template.id}
+                  emoji={w.template.emoji}
+                  title={w.template.title}
+                  doneCount={w.doneThisWeek}
+                  target={w.target}
+                  amountToday={w.amountToday ?? 0}
+                  onSetAmount={(amount) => completeMut.mutate({ templateId: w.template.id, amount })}
+                />
+              ) : (
+                <WeeklyRow
+                  key={w.template.id}
+                  emoji={w.template.emoji}
+                  title={w.template.title}
+                  doneCount={w.doneThisWeek}
+                  target={w.target}
+                  done={w.completedToday}
+                  onTick={() => completeMut.mutate({ templateId: w.template.id })}
+                />
+              ),
+            )}
           </div>
         </Section>
       )}

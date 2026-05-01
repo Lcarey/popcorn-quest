@@ -54,7 +54,8 @@ export const ddb = DynamoDBDocumentClient.from(raw, {
 
 // ---------- key helpers --------------------------------------------------
 
-const pk = (familyId: string) => `FAMILY#${familyId}`;
+const FAMILY_ID = "SINGLETON";
+const pk = () => `FAMILY#${FAMILY_ID}`;
 const skMeta = () => "META";
 const skTemplate = (id: string) => `TEMPLATE#${id}`;
 const skCompletion = (date: string, templateId: string) =>
@@ -72,11 +73,11 @@ interface FamilyMetaRecord extends FamilyMeta {
   type: "META";
 }
 
-export async function getFamily(familyId: string): Promise<FamilyMetaRecord | undefined> {
+export async function getFamily(): Promise<FamilyMetaRecord | undefined> {
   const out = await ddb.send(
     new GetCommand({
       TableName: TABLE,
-      Key: { PK: pk(familyId), SK: skMeta() },
+      Key: { PK: pk(), SK: skMeta() },
     }),
   );
   return out.Item as FamilyMetaRecord | undefined;
@@ -85,7 +86,7 @@ export async function getFamily(familyId: string): Promise<FamilyMetaRecord | un
 export async function putFamily(meta: FamilyMeta, pinHash: string): Promise<void> {
   const rec: FamilyMetaRecord = {
     ...meta,
-    PK: pk(meta.familyId),
+    PK: pk(),
     SK: skMeta(),
     pinHash,
     type: "META",
@@ -94,10 +95,8 @@ export async function putFamily(meta: FamilyMeta, pinHash: string): Promise<void
 }
 
 export async function updateFamily(
-  familyId: string,
   updates: Partial<FamilyMeta>,
 ): Promise<FamilyMetaRecord> {
-  // Build SET expression for the provided keys (top-level only).
   const sets: string[] = [];
   const names: Record<string, string> = {};
   const values: Record<string, unknown> = {};
@@ -108,14 +107,14 @@ export async function updateFamily(
     values[`:${k}`] = v;
   }
   if (sets.length === 0) {
-    const existing = await getFamily(familyId);
+    const existing = await getFamily();
     if (!existing) throw new Error("Family not found");
     return existing;
   }
   const out = await ddb.send(
     new UpdateCommand({
       TableName: TABLE,
-      Key: { PK: pk(familyId), SK: skMeta() },
+      Key: { PK: pk(), SK: skMeta() },
       UpdateExpression: `SET ${sets.join(", ")}`,
       ExpressionAttributeNames: names,
       ExpressionAttributeValues: values,
@@ -133,13 +132,13 @@ interface TemplateRecord extends TaskTemplate {
   type: "TEMPLATE";
 }
 
-export async function listTemplates(familyId: string): Promise<TaskTemplate[]> {
+export async function listTemplates(): Promise<TaskTemplate[]> {
   const out = await ddb.send(
     new QueryCommand({
       TableName: TABLE,
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
       ExpressionAttributeValues: {
-        ":pk": pk(familyId),
+        ":pk": pk(),
         ":prefix": "TEMPLATE#",
       },
     }),
@@ -147,21 +146,21 @@ export async function listTemplates(familyId: string): Promise<TaskTemplate[]> {
   return (out.Items as TemplateRecord[] | undefined)?.map(stripKeys) ?? [];
 }
 
-export async function putTemplate(familyId: string, t: TaskTemplate): Promise<void> {
+export async function putTemplate(t: TaskTemplate): Promise<void> {
   const rec: TemplateRecord = {
     ...t,
-    PK: pk(familyId),
+    PK: pk(),
     SK: skTemplate(t.id),
     type: "TEMPLATE",
   };
   await ddb.send(new PutCommand({ TableName: TABLE, Item: rec }));
 }
 
-export async function deleteTemplate(familyId: string, templateId: string): Promise<void> {
+export async function deleteTemplate(templateId: string): Promise<void> {
   await ddb.send(
     new DeleteCommand({
       TableName: TABLE,
-      Key: { PK: pk(familyId), SK: skTemplate(templateId) },
+      Key: { PK: pk(), SK: skTemplate(templateId) },
     }),
   );
 }
@@ -195,10 +194,10 @@ export async function listCompletions(
   return (out.Items as CompletionRecord[] | undefined)?.map(stripKeys) ?? [];
 }
 
-export async function putCompletion(familyId: string, c: Completion): Promise<void> {
+export async function putCompletion(c: Completion): Promise<void> {
   const rec: CompletionRecord = {
     ...c,
-    PK: pk(familyId),
+    PK: pk(),
     SK: skCompletion(c.date, c.templateId),
     type: "COMPLETION",
   };
@@ -206,27 +205,25 @@ export async function putCompletion(familyId: string, c: Completion): Promise<vo
 }
 
 export async function deleteCompletion(
-  familyId: string,
   templateId: string,
   date: string,
 ): Promise<void> {
   await ddb.send(
     new DeleteCommand({
       TableName: TABLE,
-      Key: { PK: pk(familyId), SK: skCompletion(date, templateId) },
+      Key: { PK: pk(), SK: skCompletion(date, templateId) },
     }),
   );
 }
 
 export async function getCompletion(
-  familyId: string,
   templateId: string,
   date: string,
 ): Promise<Completion | undefined> {
   const out = await ddb.send(
     new GetCommand({
       TableName: TABLE,
-      Key: { PK: pk(familyId), SK: skCompletion(date, templateId) },
+      Key: { PK: pk(), SK: skCompletion(date, templateId) },
     }),
   );
   if (!out.Item) return undefined;
@@ -242,13 +239,13 @@ interface AdhocRecord extends AdhocTask {
   ttl: number; // unix seconds
 }
 
-export async function listAdhoc(familyId: string, date: string): Promise<AdhocTask[]> {
+export async function listAdhoc(date: string): Promise<AdhocTask[]> {
   const out = await ddb.send(
     new QueryCommand({
       TableName: TABLE,
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
       ExpressionAttributeValues: {
-        ":pk": pk(familyId),
+        ":pk": pk(),
         ":prefix": `ADHOC#${date}#`,
       },
     }),
@@ -256,25 +253,25 @@ export async function listAdhoc(familyId: string, date: string): Promise<AdhocTa
   return (out.Items as AdhocRecord[] | undefined)?.map(stripKeys) ?? [];
 }
 
-export async function getAdhoc(familyId: string, date: string, id: string): Promise<AdhocTask | undefined> {
+export async function getAdhoc(date: string, id: string): Promise<AdhocTask | undefined> {
   const out = await ddb.send(
     new GetCommand({
       TableName: TABLE,
-      Key: { PK: pk(familyId), SK: skAdhoc(date, id) },
+      Key: { PK: pk(), SK: skAdhoc(date, id) },
     }),
   );
   if (!out.Item) return undefined;
   return stripKeys(out.Item as AdhocRecord);
 }
 
-export async function putAdhoc(familyId: string, a: AdhocTask): Promise<void> {
+export async function putAdhoc(a: AdhocTask): Promise<void> {
   // TTL: midnight at end of `date + 2 days` so we keep history briefly.
   const expiry = new Date(`${a.date}T00:00:00Z`);
   expiry.setUTCDate(expiry.getUTCDate() + 2);
   const ttl = Math.floor(expiry.getTime() / 1000);
   const rec: AdhocRecord = {
     ...a,
-    PK: pk(familyId),
+    PK: pk(),
     SK: skAdhoc(a.date, a.id),
     type: "ADHOC",
     ttl,
@@ -290,13 +287,13 @@ interface RewardRecord extends Reward {
   type: "REWARD";
 }
 
-export async function listRewards(familyId: string): Promise<Reward[]> {
+export async function listRewards(): Promise<Reward[]> {
   const out = await ddb.send(
     new QueryCommand({
       TableName: TABLE,
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
       ExpressionAttributeValues: {
-        ":pk": pk(familyId),
+        ":pk": pk(),
         ":prefix": "REWARD#",
       },
     }),
@@ -304,32 +301,32 @@ export async function listRewards(familyId: string): Promise<Reward[]> {
   return (out.Items as RewardRecord[] | undefined)?.map(stripKeys) ?? [];
 }
 
-export async function putReward(familyId: string, r: Reward): Promise<void> {
+export async function putReward(r: Reward): Promise<void> {
   const rec: RewardRecord = {
     ...r,
-    PK: pk(familyId),
+    PK: pk(),
     SK: skReward(r.id),
     type: "REWARD",
   };
   await ddb.send(new PutCommand({ TableName: TABLE, Item: rec }));
 }
 
-export async function getReward(familyId: string, id: string): Promise<Reward | undefined> {
+export async function getReward(id: string): Promise<Reward | undefined> {
   const out = await ddb.send(
     new GetCommand({
       TableName: TABLE,
-      Key: { PK: pk(familyId), SK: skReward(id) },
+      Key: { PK: pk(), SK: skReward(id) },
     }),
   );
   if (!out.Item) return undefined;
   return stripKeys(out.Item as RewardRecord);
 }
 
-export async function deleteReward(familyId: string, id: string): Promise<void> {
+export async function deleteReward(id: string): Promise<void> {
   await ddb.send(
     new DeleteCommand({
       TableName: TABLE,
-      Key: { PK: pk(familyId), SK: skReward(id) },
+      Key: { PK: pk(), SK: skReward(id) },
     }),
   );
 }
@@ -342,13 +339,13 @@ interface ClaimRecord extends RewardClaim {
   type: "CLAIM";
 }
 
-export async function listClaims(familyId: string, status?: string): Promise<RewardClaim[]> {
+export async function listClaims(status?: string): Promise<RewardClaim[]> {
   const out = await ddb.send(
     new QueryCommand({
       TableName: TABLE,
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
       ExpressionAttributeValues: {
-        ":pk": pk(familyId),
+        ":pk": pk(),
         ":prefix": "CLAIM#",
       },
     }),
@@ -357,10 +354,10 @@ export async function listClaims(familyId: string, status?: string): Promise<Rew
   return status ? all.filter((c) => c.status === status) : all;
 }
 
-export async function putClaim(familyId: string, c: RewardClaim): Promise<void> {
+export async function putClaim(c: RewardClaim): Promise<void> {
   const rec: ClaimRecord = {
     ...c,
-    PK: pk(familyId),
+    PK: pk(),
     SK: skClaim(c.claimedAt, c.id),
     type: "CLAIM",
   };
