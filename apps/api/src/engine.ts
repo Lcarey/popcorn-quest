@@ -7,23 +7,25 @@
 
 import {
   COSMETICS,
-  type Completion,
-  type FamilyMeta,
-  type PetState,
-  type TaskTemplate,
-  type DailyTaskView,
-  type WeeklyTaskView,
-  type AdhocTask,
-  type TodayState,
-  type DailyHistoryEntry,
-  type Reward,
-  type RewardClaim,
   XP_PER,
   cosmeticsUnlockedAt,
   levelFromXp,
   moodFromProgress,
   todayKey,
   weekStartKey,
+} from "@popcorn/shared";
+import type {
+  AdhocTask,
+  Completion,
+  DailyHistoryEntry,
+  DailyTaskView,
+  FamilyMeta,
+  PetState,
+  Reward,
+  RewardClaim,
+  TaskTemplate,
+  TodayState,
+  WeeklyTaskView,
 } from "@popcorn/shared";
 
 export interface AwardResult {

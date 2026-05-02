@@ -32,6 +32,7 @@ Use this checklist whenever shipping changes or touching `scripts/`, `infra/`, o
 - If the key is missing at deploy time, Lambda still runs but `/api/weather` returns all-null fields.
 - Optional: **`WEATHER_ZIP`** in the environment when deploying (default in stack: `02474,US`).
 - **Never** commit API keys or paste them into the repo.
+- **Diagnostics:** from repo root, with the key exported, run **`./scripts/verify-weather.sh`**. It checks OpenWeather 2.5 current + forecast HTTP status. Optionally set **`APP_URL`** to your CloudFront URL (no trailing slash) to `curl` **`/api/weather`** and confirm `currentTempF` is non-null after a good deploy.
 
 ### 3. Full deploy vs `npm run deploy`
 
@@ -99,6 +100,7 @@ git push origin --delete <branch-name>
 
 ## (C) Other helpful notes
 
+- **API tests:** `npm run test -w @popcorn/api` (runs `pretest` to build `@popcorn/shared` first). Covers `fetchWeatherToday` and **`GET /weather`** with mocked `fetch`.
 - **One-liner full ship (after AWS login):**  
   `export OPENWEATHER_API_KEY="…" && ./scripts/deploy.sh`
 - **README** documents `./scripts/deploy.sh` as the one-shot deploy; treat that as canonical.

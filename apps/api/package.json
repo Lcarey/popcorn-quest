@@ -7,6 +7,7 @@
   "scripts": {
     "build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda.mjs --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --external:@aws-sdk/*",
     "dev": "node --import tsx --watch src/local.ts",
+    "pretest": "npm run build:shared --prefix ../..",
     "test": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {
