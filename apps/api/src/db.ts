@@ -1,5 +1,5 @@
 // =============================================================================
-// DynamoDB single-table data access for Popcorn's Chore Quest.
+// DynamoDB single-table data access for Popcorn Quest.
 // =============================================================================
 //
 // Key design:

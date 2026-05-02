@@ -29,7 +29,7 @@ function PinGate() {
         </Link>
       </div>
       <div className="card space-y-3">
-        <p className="text-cocoa/80">Enter the parent PIN to manage chores.</p>
+        <p className="text-cocoa/80">Enter the parent PIN to manage daily, weekly, and recurring items.</p>
         <input
           type="password"
           inputMode="numeric"
@@ -117,7 +117,7 @@ function ParentPanel() {
       </div>
 
       <button onClick={() => setShowCreate(true)} className="btn-primary w-full">
-        + Add a recurring chore
+        + Add recurring
       </button>
 
       {showCreate && (
@@ -127,9 +127,9 @@ function ParentPanel() {
         />
       )}
 
-      <Section title="Daily chores">
+      <Section title="Daily">
         {dailyTpls.length === 0 ? (
-          <Empty>No daily chores yet.</Empty>
+          <Empty>No daily yet.</Empty>
         ) : (
           <div className="space-y-2">
             {dailyTpls.map((t) => (
@@ -144,9 +144,9 @@ function ParentPanel() {
         )}
       </Section>
 
-      <Section title="Weekly chores">
+      <Section title="Weekly">
         {weeklyTpls.length === 0 ? (
-          <Empty>No weekly chores yet.</Empty>
+          <Empty>No weekly yet.</Empty>
         ) : (
           <div className="space-y-2">
             {weeklyTpls.map((t) => (

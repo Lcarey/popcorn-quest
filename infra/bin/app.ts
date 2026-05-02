@@ -9,5 +9,5 @@ new PopcornQuestStack(app, "PopcornQuestStack", {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION || "us-east-1",
   },
-  description: "Popcorn's Chore Quest — gamified chore tracker",
+  description: "Popcorn Quest — gamified daily, weekly, and recurring tracker",
 });

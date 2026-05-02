@@ -1,6 +1,6 @@
-# Popcorn's Chore Quest
+# Popcorn Quest
 
-A serverless, gamified chore tracker for kids. Built for a 10-year-old to track daily, weekly, and ad-hoc chores while feeding XP to a virtual Popcorn-the-dog companion that levels up.
+A serverless, gamified tracker for kids. Built for a 10-year-old to track daily, weekly, ad-hoc, and recurring goals while feeding XP to a virtual Popcorn-the-dog companion that levels up.
 
 ## Architecture
 
@@ -35,7 +35,7 @@ DynamoDB on-demand + Lambda + API Gateway + S3 + CloudFront — well within AWS 
 ## Family setup
 
 1. Deploy with `npm run deploy`. The output prints the CloudFront URL.
-2. Open the URL on the kid's device. The setup wizard runs once: name the pet, choose a parent PIN, and the app seeds the example chores.
+2. Open the URL on the kid's device. The setup wizard runs once: name the pet, choose a parent PIN, and the app seeds example daily and weekly items.
 3. The familyId is saved in localStorage. To use the same family on a new device, copy the familyId from the parent panel ("Sync to another device") and paste it on the new device's setup screen.
 
 ## Auth model

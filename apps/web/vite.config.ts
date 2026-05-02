@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon-192.png", "icon-512.png"],
       manifest: {
-        name: "Popcorn's Chore Quest",
+        name: "Popcorn Quest",
         short_name: "Popcorn Quest",
-        description: "Track your chores and level up Popcorn the dog!",
+        description: "Track daily, weekly, and recurring goals and level up Popcorn the dog!",
         theme_color: "#fde68a",
         background_color: "#fff7ed",
         display: "standalone",

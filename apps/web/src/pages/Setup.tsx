@@ -30,8 +30,8 @@ export function Setup() {
     <div className="space-y-4 pt-8">
       <div className="text-center">
         <img src="/icon-512.png" alt="Popcorn" className="w-32 h-32 mx-auto drop-shadow-md rounded-full" />
-        <h1 className="text-3xl font-display font-bold">Popcorn's Chore Quest</h1>
-        <p className="text-cocoa/70 mt-1">Track chores. Level up your buddy.</p>
+        <h1 className="text-3xl font-display font-bold">Popcorn Quest</h1>
+        <p className="text-cocoa/70 mt-1">Track daily, weekly, and recurring goals. Level up your buddy.</p>
       </div>
 
       {step === "welcome" && (
@@ -46,7 +46,7 @@ export function Setup() {
         <div className="card space-y-3">
           <h2 className="font-display font-bold text-xl">Name your buddy</h2>
           <p className="text-sm text-cocoa/70">
-            Your virtual dog levels up as you finish chores.
+            Your virtual dog levels up as you finish daily, weekly, and recurring goals.
           </p>
           <input
             value={petName}
@@ -73,7 +73,7 @@ export function Setup() {
         <div className="card space-y-3">
           <h2 className="font-display font-bold text-xl">Set a parent PIN</h2>
           <p className="text-sm text-cocoa/70">
-            Used to add or edit recurring chores. Keep it secret from your kid!
+            Used to add or edit recurring items. Keep it secret from your kid!
           </p>
           <input
             type="password"
