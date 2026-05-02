@@ -10,14 +10,14 @@ export default function App() {
   const path = location.pathname;
   if (path === "/setup") {
     return (
-      <div className="min-h-screen w-full max-w-md mx-auto px-4 pt-6 pb-24">
+      <div className="min-h-screen w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-4 pt-6 pb-24">
         <Setup />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen w-full max-w-md mx-auto px-4 pt-6 pb-24">
+    <div className="min-h-screen w-full max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-4 pt-6 pb-24">
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/setup" element={<Setup />} />

@@ -7,6 +7,7 @@ import {
   type CompleteResponse,
   type Reward,
   type TodayState,
+  type CalendarEventsResponse,
 } from "@popcorn/shared";
 import { api } from "../api";
 import { Popcorn, type PopcornHandle } from "../components/Popcorn";
@@ -17,6 +18,7 @@ import { AddQuestSheet } from "../components/AddQuestSheet";
 import { CelebrateToast } from "../components/CelebrateToast";
 import { HistoryHeatmap } from "../components/HistoryHeatmap";
 import { RewardShop } from "../components/RewardShop";
+import { UpcomingCalendar } from "../components/UpcomingCalendar";
 import {
   playCheck,
   playClaim,
@@ -39,6 +41,12 @@ export function Home() {
     queryKey: ["weather"],
     queryFn: () => api.weather(),
     staleTime: 5 * 60 * 1000,
+  });
+
+  const calendarQuery = useQuery<CalendarEventsResponse>({
+    queryKey: ["calendar-events"],
+    queryFn: () => api.calendarEvents(),
+    staleTime: 10 * 60 * 1000,
   });
 
   const [celebrate, setCelebrate] = useState<CompleteResponse | null>(null);
@@ -171,82 +179,94 @@ export function Home() {
         )}
       </div>
 
-      {/* Daily tasks */}
-      {state && state.daily.length > 0 && (
-        <Section title="Today">
-          <div className="space-y-2">
-            {state.daily.map((d) => (
-              <TaskRow
-                key={d.template.id}
-                emoji={d.template.emoji}
-                title={d.template.title}
-                done={d.completedToday}
-                onToggle={() => completeMut.mutate({ templateId: d.template.id })}
-              />
-            ))}
-          </div>
-        </Section>
-      )}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,22rem)] gap-6 lg:items-start">
+        <div className="space-y-4 min-w-0">
+          {/* Daily tasks */}
+          {state && state.daily.length > 0 && (
+            <Section title="Today">
+              <div className="space-y-2">
+                {state.daily.map((d) => (
+                  <TaskRow
+                    key={d.template.id}
+                    emoji={d.template.emoji}
+                    title={d.template.title}
+                    done={d.completedToday}
+                    onToggle={() => completeMut.mutate({ templateId: d.template.id })}
+                  />
+                ))}
+              </div>
+            </Section>
+          )}
 
-      {/* Weekly tasks */}
-      {state && state.weekly.length > 0 && (
-        <Section title="This week">
-          <div className="space-y-2">
-            {state.weekly.map((w) =>
-              w.template.weeklyTrack === "cumulative" ? (
-                <CumulativeWeeklyRow
-                  key={w.template.id}
-                  emoji={w.template.emoji}
-                  title={w.template.title}
-                  doneCount={w.doneThisWeek}
-                  target={w.target}
-                  amountToday={w.amountToday ?? 0}
-                  onSetAmount={(amount) => completeMut.mutate({ templateId: w.template.id, amount })}
-                />
-              ) : (
-                <WeeklyRow
-                  key={w.template.id}
-                  emoji={w.template.emoji}
-                  title={w.template.title}
-                  doneCount={w.doneThisWeek}
-                  target={w.target}
-                  done={w.completedToday}
-                  onTick={() => completeMut.mutate({ templateId: w.template.id })}
-                />
-              ),
+          {/* Weekly tasks */}
+          {state && state.weekly.length > 0 && (
+            <Section title="This week">
+              <div className="space-y-2">
+                {state.weekly.map((w) =>
+                  w.template.weeklyTrack === "cumulative" ? (
+                    <CumulativeWeeklyRow
+                      key={w.template.id}
+                      emoji={w.template.emoji}
+                      title={w.template.title}
+                      doneCount={w.doneThisWeek}
+                      target={w.target}
+                      amountToday={w.amountToday ?? 0}
+                      onSetAmount={(amount) => completeMut.mutate({ templateId: w.template.id, amount })}
+                    />
+                  ) : (
+                    <WeeklyRow
+                      key={w.template.id}
+                      emoji={w.template.emoji}
+                      title={w.template.title}
+                      doneCount={w.doneThisWeek}
+                      target={w.target}
+                      done={w.completedToday}
+                      onTick={() => completeMut.mutate({ templateId: w.template.id })}
+                    />
+                  ),
+                )}
+              </div>
+            </Section>
+          )}
+
+          {/* Ad-hoc */}
+          <Section
+            title="Side quests"
+            action={
+              <button onClick={() => setAddOpen(true)} className="text-sm font-semibold text-coral">
+                + Add
+              </button>
+            }
+          >
+            {state && state.adhoc.length > 0 ? (
+              <div className="space-y-2">
+                {state.adhoc.map((a) => (
+                  <TaskRow
+                    key={a.id}
+                    emoji={a.emoji}
+                    title={a.title}
+                    done={a.done}
+                    subtitle="Side quest"
+                    onToggle={() => completeMut.mutate({ adhocId: a.id })}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="card text-center text-cocoa/60 text-sm py-4">
+                Nothing here yet. Tap <span className="text-coral font-bold">+ Add</span> to make one up!
+              </div>
             )}
-          </div>
-        </Section>
-      )}
+          </Section>
+        </div>
 
-      {/* Ad-hoc */}
-      <Section
-        title="Side quests"
-        action={
-          <button onClick={() => setAddOpen(true)} className="text-sm font-semibold text-coral">
-            + Add
-          </button>
-        }
-      >
-        {state && state.adhoc.length > 0 ? (
-          <div className="space-y-2">
-            {state.adhoc.map((a) => (
-              <TaskRow
-                key={a.id}
-                emoji={a.emoji}
-                title={a.title}
-                done={a.done}
-                subtitle="Side quest"
-                onToggle={() => completeMut.mutate({ adhocId: a.id })}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="card text-center text-cocoa/60 text-sm py-4">
-            Nothing here yet. Tap <span className="text-coral font-bold">+ Add</span> to make one up!
-          </div>
-        )}
-      </Section>
+        <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
+          <UpcomingCalendar
+            events={calendarQuery.data?.events ?? []}
+            loading={calendarQuery.isPending}
+            error={calendarQuery.error}
+          />
+        </aside>
+      </div>
 
       {/* Rewards */}
       {state && (state.rewards.length > 0 || state.pendingClaims.length > 0) && (

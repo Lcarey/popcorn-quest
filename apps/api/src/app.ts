@@ -37,6 +37,7 @@ import type {
   TodayState,
   UpdateTemplateRequest,
   WeatherToday,
+  CalendarEventsResponse,
 } from "@popcorn/shared";
 import {
   deleteCompletion,
@@ -69,6 +70,7 @@ import {
   xpForTask,
 } from "./engine.js";
 import { fetchWeatherToday } from "./weather.js";
+import { getCalendarEventsCached } from "./calendar.js";
 
 const app = new Hono();
 
@@ -177,6 +179,16 @@ app.get("/weather", async (c) => {
   } catch (e) {
     console.error("weather fetch:", e);
     return c.json(EMPTY_WEATHER);
+  }
+});
+
+app.get("/calendar-events", async (c) => {
+  try {
+    const body = await getCalendarEventsCached();
+    return c.json(body satisfies CalendarEventsResponse);
+  } catch (e) {
+    console.error("calendar-events:", e);
+    return c.json({ events: [], errors: ["Internal error"] } satisfies CalendarEventsResponse, 500);
   }
 });
 

@@ -226,6 +226,27 @@ export interface WeatherToday {
 }
 
 // =============================================================================
+// Calendar (ICS feeds, proxied via API)
+// =============================================================================
+
+export interface CalendarEvent {
+  /** ISO 8601 start instant */
+  start: string;
+  end?: string;
+  title: string;
+  location?: string;
+  allDay?: boolean;
+  /** 0-based line index in calendar-feeds.txt (which subscribed calendar this came from). */
+  feedIndex: number;
+}
+
+export interface CalendarEventsResponse {
+  events: CalendarEvent[];
+  /** Present when one or more feeds failed but others may have succeeded. */
+  errors?: string[];
+}
+
+// =============================================================================
 // XP / leveling rules
 // =============================================================================
 

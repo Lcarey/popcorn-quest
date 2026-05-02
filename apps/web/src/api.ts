@@ -22,6 +22,7 @@ import type {
   TodayState,
   UpdateTemplateRequest,
   WeatherToday,
+  CalendarEventsResponse,
 } from "@popcorn/shared";
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || "/api";
@@ -54,6 +55,7 @@ export const api = {
     return req<TodayState>(`/state?${q.toString()}`);
   },
   weather: () => req<WeatherToday>("/weather"),
+  calendarEvents: () => req<CalendarEventsResponse>("/calendar-events"),
   complete: (body: CompleteRequest) =>
     req<CompleteResponse>("/complete", { method: "POST", body: JSON.stringify(body) }),
   adhoc: (body: AdhocRequest) =>

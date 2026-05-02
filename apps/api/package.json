@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda.mjs --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --external:@aws-sdk/*",
+    "build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda.mjs --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --external:@aws-sdk/* && cp calendar-feeds.txt dist/",
     "dev": "node --import tsx --watch src/local.ts",
     "pretest": "npm run build:shared --prefix ../..",
     "test": "node --import tsx --test src/**/*.test.ts"
@@ -16,7 +16,8 @@
     "@hono/node-server": "^1.13.1",
     "@popcorn/shared": "*",
     "bcryptjs": "^2.4.3",
-    "hono": "^4.6.3"
+    "hono": "^4.6.3",
+    "node-ical": "^0.19.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.143",
