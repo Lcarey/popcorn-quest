@@ -7,3 +7,5 @@ webcal://ical.sportngin.com/v3/calendar/ical?uuid=9d6e8c9bf342401c84d1761ee725b1
 webcal://api.team-manager.gc.com/ics-calendar-documents/user/6f1f71b1-874e-4a70-a4b6-0aeea9147831.ics?teamId=e8c6c4ef-3294-432f-93d2-45bc5a314fc6&token=5d4b83571302668f7e3ce48cac8303fe6c3a9bd096066804f263de093c2037b5
 
 https://calendar.google.com/calendar/ical/family16958964124479892499%40group.calendar.google.com/private-1bbe4dba93e34d58435c494982e5ea7d/basic.ics
+
+https://calendar.google.com/calendar/ical/manuwcarey%40gmail.com/private-8ebbc4b65d38029ee7738433cfa6329a/basic.ics
