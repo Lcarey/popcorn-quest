@@ -368,13 +368,32 @@ app.post("/complete", async (c) => {
       const amount = Math.max(0, Math.floor(Number(body.amount) || 0));
       if (amount > 0) {
         const isNew = !existing;
+        const week = weekStartKey(new Date(date));
+        const weekEnd = endOfWeek(week);
+        const weekRows = (await listCompletions("SINGLETON", week, weekEnd)).filter(
+          (c) => c.templateId === tpl.id,
+        );
+        let otherSum = 0;
+        for (const c of weekRows) {
+          if (c.date === date) continue;
+          otherSum += c.amount ?? 1;
+        }
+        const oldTodayContrib = existing ? (existing.amount ?? 1) : 0;
+        const oldTotal = otherSum + oldTodayContrib;
+        const newTotal = otherSum + amount;
+        const crossesTarget =
+          tpl.weeklyTarget > 0 &&
+          oldTotal < tpl.weeklyTarget &&
+          newTotal >= tpl.weeklyTarget;
+        const shouldAwardXp = (isNew && amount > 0) || crossesTarget;
+
         await putCompletion({
           templateId: tpl.id,
           date,
           completedAt: existing?.completedAt ?? new Date().toISOString(),
           amount,
         });
-        if (isNew) {
+        if (shouldAwardXp) {
           const r = awardXp(fam.pet, xp);
           await updateFamily({ pet: r.pet });
           fam.pet = r.pet;
