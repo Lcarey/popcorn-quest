@@ -11,7 +11,13 @@
 
 import { AnimatePresence, motion, useAnimation } from "framer-motion";
 import { forwardRef, useImperativeHandle } from "react";
-import type { PetMood, PetState } from "@popcorn/shared";
+import {
+  levelFromXp,
+  type PetMood,
+  type PetState,
+  type WeatherCondition,
+  type WeatherToday,
+} from "@popcorn/shared";
 
 export interface PopcornHandle {
   celebrate: () => Promise<void>;
@@ -21,6 +27,8 @@ interface PopcornProps {
   pet: PetState;
   mood: PetMood;
   onTap?: () => void;
+  /** From GET /weather; omitted or all-null shows placeholders. */
+  weather?: WeatherToday | null;
 }
 
 const MOOD_PHOTO: Record<PetMood, string> = {
@@ -31,7 +39,7 @@ const MOOD_PHOTO: Record<PetMood, string> = {
 };
 
 export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
-  { pet, mood, onTap },
+  { pet, mood, onTap, weather },
   ref,
 ) {
   const controls = useAnimation();
@@ -57,6 +65,7 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
   const hat = pet.equipped.hat;
   const collar = pet.equipped.collar ?? "collar-red";
   const scene = pet.equipped.scene ?? "scene-yard";
+  const { level, intoLevel, nextLevelXp } = levelFromXp(pet.xp);
 
   const idle: { y: number[]; rotate?: number[]; duration: number } = (() => {
     switch (mood) {
@@ -74,6 +83,12 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
   return (
     <div className="relative select-none">
       <SceneBackground scene={scene} />
+      <CornerOverlays
+        weather={weather}
+        level={level}
+        intoLevel={intoLevel}
+        nextLevelXp={nextLevelXp}
+      />
 
       <button
         type="button"
@@ -194,6 +209,77 @@ function HatOverlay({ id }: { id: string }) {
   }
 }
 
+function conditionEmoji(c: WeatherCondition | null | undefined): string {
+  switch (c) {
+    case "sunny":
+      return "☀️";
+    case "cloudy":
+      return "☁️";
+    case "rain":
+      return "🌧️";
+    case "snow":
+      return "❄️";
+    case "windy":
+      return "💨";
+    default:
+      return "";
+  }
+}
+
+function CornerOverlays({
+  weather,
+  level,
+  intoLevel,
+  nextLevelXp,
+}: {
+  weather: WeatherToday | null | undefined;
+  level: number;
+  intoLevel: number;
+  nextLevelXp: number;
+}) {
+  const w = weather ?? undefined;
+  const icon = conditionEmoji(w?.condition ?? null);
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden rounded-3xl">
+      <div className="absolute top-2 left-2 text-left leading-tight drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)]">
+        {w?.currentTempF != null ? (
+          <>
+            <div className="text-sm font-bold text-cocoa">{Math.round(w.currentTempF)}°</div>
+            {w.minTempF != null && w.maxTempF != null && (
+              <div className="text-[10px] font-semibold text-cocoa/80">
+                ↓{Math.round(w.minTempF)}° ↑{Math.round(w.maxTempF)}°
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="text-xs font-semibold text-cocoa/45">—</div>
+        )}
+      </div>
+      <div className="absolute top-2 right-2 flex flex-col items-end gap-0.5 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)]">
+        {w?.rainPopPercent != null ? (
+          <div className="text-[10px] font-semibold text-cocoa/90">{w.rainPopPercent}% rain</div>
+        ) : (
+          <div className="text-[10px] font-semibold text-cocoa/45">—</div>
+        )}
+        <div className="text-xl leading-none" aria-hidden>
+          {icon ? (
+            <span className="text-2xl leading-none">{icon}</span>
+          ) : (
+            <span className="text-sm font-semibold text-cocoa/40">—</span>
+          )}
+        </div>
+      </div>
+      <div className="absolute bottom-2 left-3 flex flex-col items-start gap-0.5 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)]">
+        <div className="text-xs font-display font-bold text-cocoa leading-none">LV {level}</div>
+        <div className="text-[10px] font-semibold text-cocoa/85 leading-none">
+          {intoLevel} / {nextLevelXp} XP
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CollarOverlay({ id }: { id: string }) {
   const palette: Record<string, string[]> = {
     "collar-red": ["#ef4444", "#fbbf24"],
@@ -231,9 +317,6 @@ function SceneBackground({ scene }: { scene: string }) {
       <div className="absolute inset-0 -z-10 rounded-3xl overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-sky/40 to-mint/40" />
         <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-mint/60 rounded-t-[40%]" />
-        <div className="absolute top-3 right-4 text-3xl">☀️</div>
-        <div className="absolute bottom-2 left-3 text-2xl">🌼</div>
-        <div className="absolute bottom-2 right-6 text-2xl">🌷</div>
       </div>
     ),
     "scene-park": (

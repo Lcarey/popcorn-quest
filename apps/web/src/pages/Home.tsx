@@ -9,9 +9,7 @@ import {
   type TodayState,
 } from "@popcorn/shared";
 import { api } from "../api";
-import { useApp } from "../store";
 import { Popcorn, type PopcornHandle } from "../components/Popcorn";
-import { XpBar } from "../components/XpBar";
 import { TaskRow } from "../components/TaskRow";
 import { WeeklyRow } from "../components/WeeklyRow";
 import { CumulativeWeeklyRow } from "../components/CumulativeWeeklyRow";
@@ -35,6 +33,12 @@ export function Home() {
   const stateQuery = useQuery({
     queryKey: ["state", date],
     queryFn: () => api.state(date, true),
+  });
+
+  const weatherQuery = useQuery({
+    queryKey: ["weather"],
+    queryFn: () => api.weather(),
+    staleTime: 5 * 60 * 1000,
   });
 
   const [celebrate, setCelebrate] = useState<CompleteResponse | null>(null);
@@ -140,16 +144,11 @@ export function Home() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-xs font-semibold text-cocoa/60 uppercase tracking-wide">
-            {new Date().toLocaleDateString(undefined, { weekday: "long" })}
-          </div>
-          <h1 className="text-3xl font-display font-bold">Chore Quest</h1>
+      <div>
+        <div className="text-xs font-semibold text-cocoa/60 uppercase tracking-wide">
+          {new Date().toLocaleDateString(undefined, { weekday: "long" })}
         </div>
-        <Link to="/parent" className="btn-ghost text-sm py-2 px-3">
-          Parent
-        </Link>
+        <h1 className="text-3xl font-display font-bold">Popcorn Quest</h1>
       </div>
 
       {/* Popcorn + streak */}
@@ -162,11 +161,15 @@ export function Home() {
             🐾 <span>Mood: {mood}</span>
           </div>
         </div>
-        {state && <Popcorn ref={popcornRef} pet={state.family.pet} mood={mood} />}
+        {state && (
+          <Popcorn
+            ref={popcornRef}
+            pet={state.family.pet}
+            mood={mood}
+            weather={weatherQuery.data}
+          />
+        )}
       </div>
-
-      {/* XP bar */}
-      {state && <XpBar pet={state.family.pet} />}
 
       {/* Daily tasks */}
       {state && state.daily.length > 0 && (
@@ -286,6 +289,12 @@ export function Home() {
         unlocked={celebrate?.unlocked}
         onDone={() => setCelebrate(null)}
       />
+
+      <div className="pt-6 pb-2 text-center">
+        <Link to="/parent" className="text-xs text-cocoa/35 hover:text-cocoa/50 font-medium">
+          Parent
+        </Link>
+      </div>
     </div>
   );
 }

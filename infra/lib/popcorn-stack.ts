@@ -34,6 +34,9 @@ export class PopcornQuestStack extends cdk.Stack {
       environment: {
         TABLE_NAME: table.tableName,
         NODE_OPTIONS: "--enable-source-maps",
+        // OpenWeather — set OPENWEATHER_API_KEY in the shell when running `cdk deploy` (not committed).
+        OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY ?? "",
+        WEATHER_ZIP: process.env.WEATHER_ZIP ?? "02474,US",
       },
     });
     table.grantReadWriteData(fn);

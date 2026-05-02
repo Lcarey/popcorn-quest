@@ -1,5 +1,5 @@
 // =============================================================================
-// Popcorn's Chore Quest — shared types & XP rules
+// Popcorn Quest — shared types & XP rules
 // =============================================================================
 
 export type Cadence = "daily" | "weekly";
@@ -207,6 +207,22 @@ export interface UpdateTemplateRequest {
 
 export interface DeleteTemplateRequest {
   pin: string;
+}
+
+// =============================================================================
+// Weather (home screen, proxied from OpenWeather via API)
+// =============================================================================
+
+/** Rendered as emoji on the kid home screen (sunny / cloudy / rain / snow / windy). */
+export type WeatherCondition = "sunny" | "cloudy" | "rain" | "snow" | "windy";
+
+export interface WeatherToday {
+  currentTempF: number | null;
+  minTempF: number | null;
+  maxTempF: number | null;
+  /** 0–100, max POP for local calendar day. */
+  rainPopPercent: number | null;
+  condition: WeatherCondition | null;
 }
 
 // =============================================================================

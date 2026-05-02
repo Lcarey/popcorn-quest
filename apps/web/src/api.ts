@@ -21,6 +21,7 @@ import type {
   TaskTemplate,
   TodayState,
   UpdateTemplateRequest,
+  WeatherToday,
 } from "@popcorn/shared";
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || "/api";
@@ -52,6 +53,7 @@ export const api = {
     if (history) q.set("history", "1");
     return req<TodayState>(`/state?${q.toString()}`);
   },
+  weather: () => req<WeatherToday>("/weather"),
   complete: (body: CompleteRequest) =>
     req<CompleteResponse>("/complete", { method: "POST", body: JSON.stringify(body) }),
   adhoc: (body: AdhocRequest) =>

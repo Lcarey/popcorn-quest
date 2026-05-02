@@ -1,5 +1,5 @@
 // =============================================================================
-// Hono router for Popcorn's Chore Quest API.
+// Hono router for Popcorn Quest API.
 //
 // Used by both the Lambda handler and the local dev server.
 // =============================================================================
@@ -32,6 +32,7 @@ import {
   levelFromXp,
   type PetState,
   todayKey,
+  type WeatherToday,
   weekStartKey,
   XP_PER,
 } from "@popcorn/shared";
@@ -65,8 +66,22 @@ import {
   reverseXp,
   xpForTask,
 } from "./engine.js";
+import { fetchWeatherToday } from "./weather.js";
 
 const app = new Hono();
+
+// ------- weather (OpenWeather via env; short-lived Lambda memory cache) ----
+
+let weatherMemCache: { expires: number; body: WeatherToday } | null = null;
+const WEATHER_CACHE_MS = 10 * 60 * 1000;
+
+const EMPTY_WEATHER: WeatherToday = {
+  currentTempF: null,
+  minTempF: null,
+  maxTempF: null,
+  rainPopPercent: null,
+  condition: null,
+};
 app.use(
   "*",
   cors({
@@ -141,6 +156,27 @@ app.onError((err, c) => {
 // ------- /health ---------------------------------------------------------
 
 app.get("/health", (c) => c.json({ ok: true, time: new Date().toISOString() }));
+
+app.get("/weather", async (c) => {
+  const apiKey = (process.env.OPENWEATHER_API_KEY ?? "").trim();
+  const zip = (process.env.WEATHER_ZIP ?? "02474,US").trim();
+  if (!apiKey) return c.json(EMPTY_WEATHER);
+
+  const now = Date.now();
+  if (weatherMemCache && weatherMemCache.expires > now) {
+    return c.json(weatherMemCache.body);
+  }
+  try {
+    const body = await fetchWeatherToday(apiKey, zip);
+    if (body.currentTempF !== null) {
+      weatherMemCache = { expires: now + WEATHER_CACHE_MS, body };
+    }
+    return c.json(body);
+  } catch (e) {
+    console.error("weather fetch:", e);
+    return c.json(EMPTY_WEATHER);
+  }
+});
 
 app.get("/cosmetics", (c) => c.json({ cosmetics: COSMETICS }));
 
