@@ -1,0 +1,105 @@
+---
+description: >-
+  Popcorn Quest — full deploy prerequisites (AWS, OpenWeather, deploy.sh vs npm run deploy),
+  GitHub workflow without PRs, and common release pitfalls.
+alwaysApply: true
+---
+
+# Popcorn Quest — deploy and Git workflow
+
+Use this checklist whenever shipping changes or touching `scripts/`, `infra/`, or release-related work.
+
+## Quick checklist
+
+1. **AWS:** `aws sts get-caller-identity` succeeds (expected account/ARN).
+2. **OpenWeather (for live `/api/weather`):** `OPENWEATHER_API_KEY` exported in the **same shell** that runs CDK / full deploy. Never commit it.
+3. **Full production deploy:** run **`./scripts/deploy.sh`** from repo root — not `npm run deploy` alone (see below).
+4. **GitHub:** authenticated (`gh auth status` or SSH to GitHub). Branch, push, merge locally to `main` if not using PRs.
+
+---
+
+## (A) Deploy rules
+
+### 1. AWS authentication
+
+- Run `aws sts get-caller-identity` and confirm the account and ARN are correct.
+- Stack region defaults to **`us-east-1`** (`infra/bin/app.ts`). Set `AWS_REGION` / `CDK_DEFAULT_REGION` if your workflow expects a different region.
+- First-time account/region: ensure CDK is bootstrapped (`npx cdk bootstrap` from `infra/` once).
+
+### 2. OpenWeather API key
+
+- **`OPENWEATHER_API_KEY`** is read at **CDK synth/deploy time** and passed into the Lambda environment (`infra/lib/popcorn-stack.ts`). Export it before `./scripts/deploy.sh` or `npm run deploy -w @popcorn/infra`.
+- If the key is missing at deploy time, Lambda still runs but `/api/weather` returns all-null fields.
+- Optional: **`WEATHER_ZIP`** in the environment when deploying (default in stack: `02474,US`).
+- **Never** commit API keys or paste them into the repo.
+
+### 3. Full deploy vs `npm run deploy`
+
+- **`npm run deploy` (repo root)** runs `npm run build` then **`cdk deploy` only**. It updates the Lambda bundle and stack outputs but **does not** upload the Vite build to S3 or invalidate CloudFront for the SPA.
+- **`./scripts/deploy.sh`** is the **full** path: build shared + API + web, CDK deploy, then **`./scripts/deploy-web.sh`** (S3 sync + targeted invalidation).
+- Prefer: `bash ./scripts/deploy.sh` if the file is not executable.
+
+### 4. Partial deploys (when you know what changed)
+
+- **API only (fast):** `./scripts/deploy-api.sh` — Lambda hotswap, no full CloudFormation cycle.
+- **Web only:** `./scripts/deploy-web.sh` — rebuilds web, syncs to bucket from stack outputs, invalidates entry HTML/SW. Requires stack already deployed so bucket and distribution IDs exist.
+
+### 5. Success criteria
+
+- CDK prints outputs including **AppUrl** (CloudFront) and **FunctionUrl** (Lambda URL).
+- After `deploy-web`, the script notes the app is live within ~30s.
+- Optional smoke tests (replace host with your AppUrl):
+  - `curl -sS "https://<AppUrl>/api/health"`
+  - `curl -sS "https://<AppUrl>/api/weather"` — JSON with temps/POP when key is set on Lambda; otherwise nulls.
+
+### 6. Common failures
+
+- **Stale UI after “deploy”:** only CDK ran; run **`./scripts/deploy-web.sh`** (or always use **`./scripts/deploy.sh`**).
+- **`deploy-web` errors (missing bucket/distribution):** stack not deployed yet — run a full **`./scripts/deploy.sh`** first.
+- **CDK messages about assuming `cdk-hnb659fds-*` roles:** often benign if deploy still completes and credentials target the right account.
+- **Weather always empty in prod:** redeploy stack with **`OPENWEATHER_API_KEY`** set in the shell so Lambda env is updated.
+
+---
+
+## (B) GitHub rules
+
+### 1. Authentication
+
+- **GitHub CLI:** `gh auth status`
+- **SSH remote:** `ssh -T git@github.com` should succeed for your user.
+
+### 2. Branch, push, merge without PRs
+
+When you want changes on `main` without opening a pull request:
+
+```bash
+git checkout -b <branch-name>
+# ... make changes ...
+git add -A   # or selective paths
+git commit -m "message"
+git push -u origin <branch-name>
+git checkout main
+git pull origin main
+git merge <branch-name>
+git push origin main
+```
+
+Optional cleanup:
+
+```bash
+git branch -d <branch-name>
+git push origin --delete <branch-name>
+```
+
+### 3. Hygiene
+
+- Do not commit secrets (API keys, `.env` with real values). Prefer shell exports or CI secrets for deploy.
+
+---
+
+## (C) Other helpful notes
+
+- **One-liner full ship (after AWS login):**  
+  `export OPENWEATHER_API_KEY="…" && ./scripts/deploy.sh`
+- **README** documents `./scripts/deploy.sh` as the one-shot deploy; treat that as canonical.
+- **Optional repo improvement:** add an npm script alias (e.g. `deploy:full`) that invokes `./scripts/deploy.sh` so `npm run deploy` foot-guns are reduced — only if the team wants that change.
