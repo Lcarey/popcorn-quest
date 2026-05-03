@@ -8,7 +8,8 @@
     "build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda.mjs --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --external:@aws-sdk/* && cp calendar-feeds.txt dist/",
     "dev": "node --import tsx --watch src/local.ts",
     "pretest": "npm run build:shared --prefix ../..",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test src/**/*.test.ts",
+    "set-parent-pin": "node --import tsx scripts/set-parent-pin.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.654.0",

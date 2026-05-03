@@ -94,6 +94,19 @@ export async function putFamily(meta: FamilyMeta, pinHash: string): Promise<void
   await ddb.send(new PutCommand({ TableName: TABLE, Item: rec }));
 }
 
+export async function updatePinHash(pinHash: string): Promise<void> {
+  const existing = await getFamily();
+  if (!existing) throw new Error("Family not found");
+  await ddb.send(
+    new UpdateCommand({
+      TableName: TABLE,
+      Key: { PK: pk(), SK: skMeta() },
+      UpdateExpression: "SET pinHash = :h",
+      ExpressionAttributeValues: { ":h": pinHash },
+    }),
+  );
+}
+
 export async function updateFamily(
   updates: Partial<FamilyMeta>,
 ): Promise<FamilyMetaRecord> {
