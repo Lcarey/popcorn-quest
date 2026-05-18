@@ -69,7 +69,10 @@ export function UpcomingCalendar({
                   {formatWhen(ev)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-display font-semibold text-cocoa text-sm leading-snug">{ev.title}</div>
+                  <div className="font-display font-semibold text-cocoa text-sm leading-snug">
+                    {ev.feedIndex === 0 ? <span className="mr-1" aria-hidden>⚾️🧢</span> : null}
+                    {ev.title}
+                  </div>
                   {ev.location ? (
                     <div className="text-xs text-cocoa/60 mt-0.5 truncate">{ev.location}</div>
                   ) : null}
