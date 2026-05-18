@@ -2,7 +2,7 @@ import type { CalendarEvent } from "@popcorn/shared";
 
 /** Subtle tinted rows per subscribed calendar (cycles if you add many feeds). */
 const FEED_ROW_BG = [
-  "bg-sky-200/70", // light blue (SportNgin)
+  "bg-blue-200/70", // light blue (SportNgin) — `sky-*` is overridden by tailwind.config.js to a single value, so use default-palette `blue-*` here
   "bg-rose-100/50", // grey-red
   "bg-emerald-100/50", // grey-green
   "bg-indigo-100/50", // grey-violet
