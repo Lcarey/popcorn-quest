@@ -73,6 +73,31 @@ describe("eventsFromIcsBody + mergeCapAndSort", () => {
     assert.equal(merged[0].title, "All day fun");
   });
 
+  it("expands weekly RRULE into multiple occurrences", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "UID:weekly",
+      "DTSTAMP:20300101T120000Z",
+      "DTSTART:20300603T140000Z",
+      "DTEND:20300603T150000Z",
+      "RRULE:FREQ=WEEKLY;COUNT=4",
+      "SUMMARY:Weekly thing",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const rows = eventsFromIcsBody(ics, 0, REF_NOW);
+    const merged = mergeCapAndSort(rows, REF_NOW, 15);
+    assert.equal(merged.length, 4, "expected 4 weekly occurrences");
+    assert.equal(merged[0].title, "Weekly thing");
+    // Each occurrence is 7 days after the previous one.
+    for (let i = 1; i < merged.length; i++) {
+      const dt = Date.parse(merged[i].start) - Date.parse(merged[i - 1].start);
+      assert.equal(dt, 7 * 24 * 60 * 60 * 1000);
+    }
+  });
+
   it("drops cancelled events", () => {
     const ics = [
       "BEGIN:VCALENDAR",
