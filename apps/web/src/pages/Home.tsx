@@ -310,13 +310,30 @@ export function Home() {
         onDone={() => setCelebrate(null)}
       />
 
-      <div className="pt-6 pb-2 text-center">
-        <Link to="/parent" className="text-xs text-cocoa/35 hover:text-cocoa/50 font-medium">
-          Parent
-        </Link>
+      <div className="pt-6 pb-2 text-center space-y-1">
+        <div>
+          <Link to="/parent" className="text-xs text-cocoa/35 hover:text-cocoa/50 font-medium">
+            Parent
+          </Link>
+        </div>
+        <div className="text-xs font-medium text-black">
+          Last updated {formatBuildTime(__BUILD_TIME__)}
+        </div>
       </div>
     </div>
   );
+}
+
+function formatBuildTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
