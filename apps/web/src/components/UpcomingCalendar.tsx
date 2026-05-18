@@ -2,7 +2,7 @@ import type { CalendarEvent } from "@popcorn/shared";
 
 /** Subtle tinted rows per subscribed calendar (cycles if you add many feeds). */
 const FEED_ROW_BG = [
-  "bg-sky-100/55", // grey-blue
+  "bg-sky-200/70", // light blue (SportNgin)
   "bg-rose-100/50", // grey-red
   "bg-emerald-100/50", // grey-green
   "bg-indigo-100/50", // grey-violet

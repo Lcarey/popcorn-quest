@@ -226,6 +226,24 @@ function conditionEmoji(c: WeatherCondition | null | undefined): string {
   }
 }
 
+// Tapping the weather corners on mobile launches the OS weather app; on desktop
+// it opens a weather page for Arlington, MA in a new tab. Apple's Weather app
+// has no public scheme, but `weather://` reliably foregrounds it (location
+// can't be passed). Android has no universal weather scheme — the Google
+// search URL surfaces a weather card in Chrome/Google app.
+function arlingtonWeatherHref(): string {
+  if (typeof navigator === "undefined") {
+    return "https://weather.com/weather/today/l/Arlington+MA";
+  }
+  const ua = navigator.userAgent ?? "";
+  const isIOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && (navigator.maxTouchPoints ?? 0) > 1);
+  if (isIOS) return "weather://";
+  if (/Android/.test(ua)) return "https://www.google.com/search?q=weather+arlington+ma";
+  return "https://weather.com/weather/today/l/Arlington+MA";
+}
+
 function CornerOverlays({
   weather,
   level,
@@ -239,10 +257,18 @@ function CornerOverlays({
 }) {
   const w = weather ?? undefined;
   const icon = conditionEmoji(w?.condition ?? null);
+  const weatherHref = arlingtonWeatherHref();
 
   return (
     <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden rounded-3xl">
-      <div className="absolute top-2 left-2 text-left leading-tight drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)]">
+      <a
+        href={weatherHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Weather in Arlington, MA"
+        aria-label="Open weather for Arlington, MA"
+        className="pointer-events-auto absolute top-2 left-2 text-left leading-tight drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)] no-underline text-inherit cursor-pointer"
+      >
         {w?.currentTempF != null ? (
           <>
             <div className="text-sm font-bold text-cocoa">{Math.round(w.currentTempF)}°</div>
@@ -255,8 +281,15 @@ function CornerOverlays({
         ) : (
           <div className="text-xs font-semibold text-cocoa/45">—</div>
         )}
-      </div>
-      <div className="absolute top-2 right-2 flex flex-col items-end gap-0.5 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)]">
+      </a>
+      <a
+        href={weatherHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Weather in Arlington, MA"
+        aria-label="Open weather for Arlington, MA"
+        className="pointer-events-auto absolute top-2 right-2 flex flex-col items-end gap-0.5 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)] no-underline text-inherit cursor-pointer"
+      >
         {w?.rainPopPercent != null ? (
           <div className="text-[10px] font-semibold text-cocoa/90">{w.rainPopPercent}% rain</div>
         ) : (
@@ -269,7 +302,7 @@ function CornerOverlays({
             <span className="text-sm font-semibold text-cocoa/40">—</span>
           )}
         </div>
-      </div>
+      </a>
       <div className="absolute bottom-2 left-3 flex flex-col items-start gap-0.5 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)]">
         <div className="text-xs font-display font-bold text-cocoa leading-none">LV {level}</div>
         <div className="text-[10px] font-semibold text-cocoa/85 leading-none">
