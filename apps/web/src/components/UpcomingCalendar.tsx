@@ -25,13 +25,17 @@ function formatWhen(ev: CalendarEvent): string {
       day: "numeric",
     });
   }
-  return start.toLocaleString(undefined, {
+  const datePart = start.toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   });
+  const timePart = start.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${datePart}, ${timePart}`;
 }
 
 export function UpcomingCalendar({
