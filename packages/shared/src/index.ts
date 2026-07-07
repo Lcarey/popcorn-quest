@@ -251,10 +251,10 @@ export interface CalendarEventsResponse {
 // =============================================================================
 
 export const XP_PER = {
-  daily: 10,
+  daily: 5,
   weekly: 15,
   adhoc: 5,
-  fullDayBonus: 25,
+  fullDayBonus: 10,
 } as const;
 
 // XP required to reach level N from level N-1.
