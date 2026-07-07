@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { COSMETICS, levelFromXp, type Cosmetic, type PetState } from "@popcorn/shared";
+import { HatArt } from "./CosmeticArt";
 
 const SLOT_LABELS: Record<Cosmetic["slot"], string> = {
   hat: "Hats 🎩",
@@ -81,11 +82,15 @@ export function WardrobeSheet({
                         >
                           <div
                             className={[
-                              "text-3xl",
+                              "h-9 flex items-center justify-center",
                               unlocked ? "" : "grayscale opacity-40",
                             ].join(" ")}
                           >
-                            {c.emoji}
+                            {slot === "hat" ? (
+                              <HatArt id={c.id} className="h-9 w-9" />
+                            ) : (
+                              <span className="text-3xl">{c.emoji}</span>
+                            )}
                           </div>
                           <div
                             className={[

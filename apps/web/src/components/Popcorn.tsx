@@ -20,6 +20,7 @@ import {
   type WeatherToday,
 } from "@popcorn/shared";
 import { playBark, vibrate } from "../lib/feedback";
+import { HatArt } from "./CosmeticArt";
 
 export interface PopcornHandle {
   celebrate: () => Promise<void>;
@@ -50,6 +51,17 @@ const MOOD_PHOTO: Record<PetMood, string> = {
   neutral: "/popcorn-moods/photo3.jpg",
   happy: "/popcorn-moods/photo1.jpg",
   ecstatic: "/popcorn-moods/photo2.jpg",
+};
+
+// Where the crown of Popcorn's head sits in each mood photo, as % of the
+// square object-cover frame (measured against center-cropped photos), plus
+// how tilted her head is. Keeps hats on her head instead of floating in the
+// frame corner.
+const HEAD_ANCHOR: Record<PetMood, { x: number; y: number; angle: number }> = {
+  sleepy: { x: 32, y: 42, angle: -28 }, // photo4: looking down-left
+  neutral: { x: 56, y: 38, angle: -5 }, // photo3
+  happy: { x: 51, y: 41, angle: -4 }, // photo1
+  ecstatic: { x: 47, y: 25, angle: -5 }, // photo2
 };
 
 export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
@@ -204,10 +216,13 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
             </div>
 
             {/* Hat overlay */}
-            {hat && <HatOverlay id={hat} />}
+            {hat && <HatOverlay id={hat} mood={mood} />}
 
             {/* Collar overlay */}
             <CollarOverlay id={collar} />
+
+            {/* Treat overlay */}
+            {pet.equipped.treat && <TreatOverlay id={pet.equipped.treat} />}
           </motion.div>
 
           {/* Sparkles burst (on completion) */}
@@ -285,18 +300,46 @@ function XpBar({
   );
 }
 
-function HatOverlay({ id }: { id: string }) {
-  const wrapper = "absolute left-1/2 -translate-x-1/2 -top-3 text-5xl drop-shadow-md z-20";
-  switch (id) {
-    case "hat-party":
-      return <div className={wrapper}>🎉</div>;
-    case "hat-crown":
-      return <div className={wrapper}>👑</div>;
-    case "hat-graduation":
-      return <div className={wrapper}>🎓</div>;
-    default:
-      return null;
-  }
+// Anchors the hat to Popcorn's head in the current mood photo and springs to
+// the new spot when the photo crossfades.
+function HatOverlay({ id, mood }: { id: string; mood: PetMood }) {
+  const a = HEAD_ANCHOR[mood];
+  return (
+    <motion.div
+      className="absolute z-20 pointer-events-none"
+      initial={false}
+      animate={{ left: `${a.x}%`, top: `${a.y}%` }}
+      transition={{ type: "spring", stiffness: 170, damping: 20 }}
+    >
+      {/* Base of the hat sits just onto the crown of her head. */}
+      <div style={{ transform: "translate(-50%, -88%)" }}>
+        <motion.div
+          initial={false}
+          animate={{ rotate: a.angle }}
+          transition={{ type: "spring", stiffness: 170, damping: 20 }}
+          style={{ transformOrigin: "50% 100%" }}
+          className="drop-shadow-md"
+        >
+          <HatArt id={id} className="w-12 sm:w-14" />
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+}
+
+// Her treat rests by her paws at the bottom edge of the portrait, gently
+// wagging so the kid notices it's there.
+function TreatOverlay({ id }: { id: string }) {
+  if (id !== "treat-bone") return null;
+  return (
+    <motion.div
+      className="absolute bottom-1 -right-1 z-20 pointer-events-none text-3xl drop-shadow-md"
+      animate={{ rotate: [-14, -26, -14], y: [0, -2, 0] }}
+      transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+    >
+      🦴
+    </motion.div>
+  );
 }
 
 function conditionEmoji(c: WeatherCondition | null | undefined): string {
