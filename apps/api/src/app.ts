@@ -64,6 +64,7 @@ import {
   awardXp,
   buildHistory,
   buildTodayState,
+  latestSessionCompletion,
   maybeAwardFullDayBonus,
   priorDate,
   reverseXp,
@@ -409,13 +410,43 @@ app.post("/complete", async (c) => {
         xpDelta = -xp;
       }
     } else {
-      // Sessions (legacy): toggle a completion row.
+      // Sessions: toggle today's tick, or undo the latest week tick when the
+      // weekly target is already met on another day (e.g. 1/1 RSM done Mon,
+      // kid tries to uncheck on Tue — was incorrectly adding a 2nd tick).
       if (existing) {
         await deleteCompletion(tpl.id, date);
         const newPet = reverseXp(fam.pet, xp);
         await updateFamily({ pet: newPet });
         fam.pet = newPet;
         xpDelta = -xp;
+      } else if (tpl.cadence === "weekly") {
+        const week = weekStartKey(new Date(date));
+        const weekEnd = endOfWeek(week);
+        const weekRows = (await listCompletions("SINGLETON", week, weekEnd)).filter(
+          (c) => c.templateId === tpl.id,
+        );
+        const doneThisWeek = weekRows.length;
+        if (doneThisWeek >= tpl.weeklyTarget && tpl.weeklyTarget > 0) {
+          const latest = latestSessionCompletion(weekRows, tpl.id);
+          if (!latest) throw new HttpError(500, "Weekly completion missing");
+          await deleteCompletion(tpl.id, latest.date);
+          const newPet = reverseXp(fam.pet, xp);
+          await updateFamily({ pet: newPet });
+          fam.pet = newPet;
+          xpDelta = -xp;
+        } else {
+          await putCompletion({
+            templateId: tpl.id,
+            date,
+            completedAt: new Date().toISOString(),
+          });
+          const r = awardXp(fam.pet, xp);
+          await updateFamily({ pet: r.pet });
+          fam.pet = r.pet;
+          xpDelta = r.xpDelta;
+          leveledUp = r.leveledUp;
+          unlocked = r.unlocked;
+        }
       } else {
         await putCompletion({
           templateId: tpl.id,

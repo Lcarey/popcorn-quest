@@ -221,3 +221,15 @@ export function priorDate(date: string, daysAgo = 1): string {
 export function xpForTask(template: TaskTemplate): number {
   return template.cadence === "daily" ? XP_PER.daily : XP_PER.weekly;
 }
+
+/** Most recent session completion for a template within a week (for undo). */
+export function latestSessionCompletion(
+  completions: Completion[],
+  templateId: string,
+): Completion | undefined {
+  const rows = completions.filter((c) => c.templateId === templateId);
+  if (!rows.length) return undefined;
+  return rows.sort(
+    (a, b) => b.date.localeCompare(a.date) || b.completedAt.localeCompare(a.completedAt),
+  )[0];
+}

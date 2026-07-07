@@ -81,9 +81,18 @@ export function Home() {
             weekly.completedToday = newAmount > 0;
             willComplete = newAmount > 0 && oldAmount === 0;
           } else {
-            willComplete = !weekly.completedToday;
-            weekly.completedToday = willComplete;
-            weekly.doneThisWeek += willComplete ? 1 : -1;
+            if (weekly.completedToday) {
+              weekly.completedToday = false;
+              weekly.doneThisWeek -= 1;
+              willComplete = false;
+            } else if (weekly.doneThisWeek >= weekly.target) {
+              weekly.doneThisWeek -= 1;
+              willComplete = false;
+            } else {
+              weekly.completedToday = true;
+              weekly.doneThisWeek += 1;
+              willComplete = true;
+            }
           }
         }
       } else if (vars.adhocId) {

@@ -37,7 +37,8 @@ export function WeeklyRow({
       <div className="flex-1 text-left min-w-0">
         <div className="font-display font-semibold truncate text-cocoa">{title}</div>
         <div className="text-xs text-cocoa/70 mt-0.5">
-          {doneCount} of {target} this week {done && "• done today"}
+          {doneCount} of {target} this week
+          {done ? " • done today" : completedAll ? " • tap to undo" : ""}
         </div>
         <div className="mt-1 h-2 bg-white/70 rounded-full overflow-hidden">
           <motion.div
@@ -58,7 +59,7 @@ export function WeeklyRow({
             : "bg-white border-cocoa/20 text-cocoa",
         ].join(" ")}
       >
-        {completedAll ? "✓" : `+1`}
+        {completedAll ? (done ? "✓" : "↩") : done ? "✓" : "+1"}
       </div>
     </motion.button>
   );
