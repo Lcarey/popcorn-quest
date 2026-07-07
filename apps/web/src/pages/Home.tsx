@@ -56,7 +56,7 @@ export function Home() {
   // fire feedback; the server response 100-300ms later overwrites the rest
   // (XP, level, progress, history, etc.).
   const completeMut = useMutation({
-    mutationFn: (vars: { templateId?: string; adhocId?: string; amount?: number }) =>
+    mutationFn: (vars: { templateId?: string; adhocId?: string; amount?: number; delta?: number }) =>
       api.complete({ date, ...vars }),
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: ["state", date] });
@@ -81,18 +81,11 @@ export function Home() {
             weekly.completedToday = newAmount > 0;
             willComplete = newAmount > 0 && oldAmount === 0;
           } else {
-            if (weekly.completedToday) {
-              weekly.completedToday = false;
-              weekly.doneThisWeek -= 1;
-              willComplete = false;
-            } else if (weekly.doneThisWeek >= weekly.target) {
-              weekly.doneThisWeek -= 1;
-              willComplete = false;
-            } else {
-              weekly.completedToday = true;
-              weekly.doneThisWeek += 1;
-              willComplete = true;
-            }
+            const delta = vars.delta ?? 0;
+            weekly.doneThisWeek = Math.max(0, weekly.doneThisWeek + delta);
+            weekly.amountToday = Math.max(0, (weekly.amountToday ?? 0) + delta);
+            weekly.completedToday = (weekly.amountToday ?? 0) > 0;
+            willComplete = delta > 0;
           }
         }
       } else if (vars.adhocId) {
@@ -230,7 +223,8 @@ export function Home() {
                       doneCount={w.doneThisWeek}
                       target={w.target}
                       done={w.completedToday}
-                      onTick={() => completeMut.mutate({ templateId: w.template.id })}
+                      onAdd={() => completeMut.mutate({ templateId: w.template.id, delta: 1 })}
+                      onRemove={() => completeMut.mutate({ templateId: w.template.id, delta: -1 })}
                     />
                   ),
                 )}

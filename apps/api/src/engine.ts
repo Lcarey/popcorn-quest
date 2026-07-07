@@ -115,16 +115,17 @@ export function buildTodayState(
     } else {
       const completions = weeklyDoneByTemplate.get(t.id) ?? [];
       const isCumulative = t.weeklyTrack === "cumulative";
-      const doneThisWeek = isCumulative
-        ? completions.reduce((sum, c) => sum + (c.amount ?? 1), 0)
-        : completions.length;
+      // Both cumulative and sessions now sum per-day amounts (sessions default
+      // legacy rows to 1). Sessions can log multiple checks in a single day.
+      const doneThisWeek = completions.reduce((sum, c) => sum + (c.amount ?? 1), 0);
       const todayCompletion = completions.find((c) => c.date === date);
+      const amountToday = todayCompletion ? (todayCompletion.amount ?? 1) : 0;
       weekly.push({
         template: t,
         target: t.weeklyTarget,
         doneThisWeek,
         completedToday: todaysCompletions.has(t.id),
-        amountToday: isCumulative ? (todayCompletion?.amount ?? 0) : undefined,
+        amountToday: isCumulative ? (todayCompletion?.amount ?? 0) : amountToday,
       });
     }
   }

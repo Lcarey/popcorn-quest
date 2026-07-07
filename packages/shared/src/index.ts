@@ -171,6 +171,8 @@ export interface CompleteRequest {
   toggle?: boolean;
   /** Cumulative weekly: units for this date. */
   amount?: number;
+  /** Weekly sessions: +1 adds a check, -1 removes one. */
+  delta?: number;
 }
 
 export interface CompleteResponse {
