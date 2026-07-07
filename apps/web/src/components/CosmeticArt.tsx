@@ -58,3 +58,31 @@ export function HatArt({ id, className }: { id: string; className?: string }) {
       return null;
   }
 }
+
+// Collar band drawn as a downward arc so it reads as wrapping her neck.
+export function CollarArt({ id, className }: { id: string; className?: string }) {
+  if (id !== "collar-red" && id !== "collar-rainbow") return null;
+  return (
+    <svg viewBox="0 0 64 28" className={className} aria-hidden>
+      {id === "collar-rainbow" && (
+        <defs>
+          <linearGradient id="collar-rainbow-grad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#fb7185" />
+            <stop offset="25%" stopColor="#fde68a" />
+            <stop offset="50%" stopColor="#86efac" />
+            <stop offset="75%" stopColor="#7dd3fc" />
+            <stop offset="100%" stopColor="#c4b5fd" />
+          </linearGradient>
+        </defs>
+      )}
+      <path
+        d="M5 5 Q32 24 59 5"
+        stroke={id === "collar-rainbow" ? "url(#collar-rainbow-grad)" : "#ef4444"}
+        strokeWidth="7"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <circle cx="32" cy="19" r="4.5" fill="#fde68a" stroke="#ffffff" strokeWidth="1.5" />
+    </svg>
+  );
+}
