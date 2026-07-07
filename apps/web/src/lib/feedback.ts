@@ -71,6 +71,21 @@ export function playClaim() {
   tone({ freq: 660, duration: 0.12, type: "triangle", gain: 0.2, startAt: 0.08 });
 }
 
+export function playBark() {
+  // two quick "woof"s — low sawtooth chirps falling in pitch
+  tone({ freq: 220, freqEnd: 130, duration: 0.09, type: "sawtooth", gain: 0.16 });
+  tone({ freq: 240, freqEnd: 140, duration: 0.1, type: "sawtooth", gain: 0.16, startAt: 0.14 });
+}
+
+export function playFanfare() {
+  // full-day fanfare: C–E–G–C ascending with a sparkle on top
+  tone({ freq: 523.25, duration: 0.12, type: "triangle", gain: 0.2, startAt: 0 });
+  tone({ freq: 659.25, duration: 0.12, type: "triangle", gain: 0.2, startAt: 0.12 });
+  tone({ freq: 783.99, duration: 0.12, type: "triangle", gain: 0.22, startAt: 0.24 });
+  tone({ freq: 1046.5, duration: 0.3, type: "triangle", gain: 0.24, startAt: 0.36 });
+  tone({ freq: 1568, duration: 0.25, type: "sine", gain: 0.12, startAt: 0.44 });
+}
+
 export function vibrate(pattern: number | number[]) {
   if (typeof navigator !== "undefined" && "vibrate" in navigator) {
     try {

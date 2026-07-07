@@ -6,7 +6,10 @@
 import type {
   AdhocRequest,
   AdhocTask,
+  BuyShieldResponse,
   ClaimRewardRequest,
+  EquipRequest,
+  EquipResponse,
   CompleteRequest,
   CompleteResponse,
   CreateRewardRequest,
@@ -78,6 +81,10 @@ export const api = {
     req<{ ok: true }>(`/rewards/${id}`, { method: "DELETE", body: JSON.stringify(body) }),
   claimReward: (body: ClaimRewardRequest) =>
     req<RewardClaim>("/claims", { method: "POST", body: JSON.stringify(body) }),
+  equip: (body: EquipRequest) =>
+    req<EquipResponse>("/equip", { method: "POST", body: JSON.stringify(body) }),
+  buyShield: () =>
+    req<BuyShieldResponse>("/streak-shield/buy", { method: "POST", body: "{}" }),
   resolveClaim: (id: string, body: ResolveClaimRequest) =>
     req<RewardClaim>(`/claims/${id}/resolve`, {
       method: "POST",

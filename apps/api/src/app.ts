@@ -9,6 +9,7 @@ import { cors } from "hono/cors";
 import bcrypt from "bcryptjs";
 import {
   COSMETICS,
+  STREAK_SHIELD,
   XP_PER,
   levelFromXp,
   todayKey,
@@ -17,7 +18,10 @@ import {
 import type {
   AdhocRequest,
   AdhocTask,
+  BuyShieldResponse,
   ClaimRewardRequest,
+  EquipRequest,
+  EquipResponse,
   Completion,
   CompleteRequest,
   CompleteResponse,
@@ -107,7 +111,7 @@ type RawFamily = NonNullable<Awaited<ReturnType<typeof getFamily>>>;
 
 /** Normalize META record for API / XP logic (handles partial/corrupted pet in DynamoDB). */
 function toFamilyMeta(rec: RawFamily): FamilyMeta {
-  const { PK: _pk, SK: _sk, type: _t, pinHash: _ph, pet: petIn, streak, lastStreakDate, createdAt } =
+  const { PK: _pk, SK: _sk, type: _t, pinHash: _ph, pet: petIn, streak, lastStreakDate, streakShields, createdAt } =
     rec as RawFamily & Record<string, unknown>;
   const p = (petIn ?? {}) as Partial<PetState>;
   const xp = typeof p.xp === "number" && Number.isFinite(p.xp) ? Math.max(0, p.xp) : 0;
@@ -127,6 +131,10 @@ function toFamilyMeta(rec: RawFamily): FamilyMeta {
   return {
     streak: typeof streak === "number" ? streak : 0,
     lastStreakDate: typeof lastStreakDate === "string" ? lastStreakDate : undefined,
+    streakShields:
+      typeof streakShields === "number" && streakShields >= 0
+        ? Math.min(STREAK_SHIELD.max, Math.floor(streakShields))
+        : 0,
     createdAt: typeof createdAt === "string" ? createdAt : new Date().toISOString(),
     pet,
   };
@@ -205,6 +213,7 @@ app.post("/setup", async (c) => {
   const pinHash = await bcrypt.hash(pin, 10);
   const family: FamilyMeta = {
     streak: 0,
+    streakShields: 0,
     pet: {
       name: petName,
       xp: 0,
@@ -409,44 +418,60 @@ app.post("/complete", async (c) => {
         fam.pet = newPet;
         xpDelta = -xp;
       }
+    } else if (tpl.cadence === "weekly") {
+      // Weekly sessions: explicit +/- counter. Each +1 adds a check to today
+      // (multiple per day allowed, no target cap) and awards XP; each -1
+      // removes a check from today if any, else the most recent day, and
+      // refunds XP. Nothing to remove = no-op.
+      const delta = Number(body.delta) || 0;
+      if (delta > 0) {
+        const oldAmount = existing ? (existing.amount ?? 1) : 0;
+        await putCompletion({
+          templateId: tpl.id,
+          date,
+          completedAt: existing?.completedAt ?? new Date().toISOString(),
+          amount: oldAmount + 1,
+        });
+        const r = awardXp(fam.pet, xp);
+        await updateFamily({ pet: r.pet });
+        fam.pet = r.pet;
+        xpDelta = r.xpDelta;
+        leveledUp = r.leveledUp;
+        unlocked = r.unlocked;
+      } else if (delta < 0) {
+        const week = weekStartKey(new Date(date));
+        const weekEnd = endOfWeek(week);
+        const weekRows = (await listCompletions("SINGLETON", week, weekEnd)).filter(
+          (c) => c.templateId === tpl.id,
+        );
+        const todayRow = weekRows.find((c) => c.date === date && (c.amount ?? 1) > 0);
+        const target = todayRow ?? latestSessionCompletion(weekRows, tpl.id);
+        if (target) {
+          const cur = target.amount ?? 1;
+          if (cur <= 1) {
+            await deleteCompletion(tpl.id, target.date);
+          } else {
+            await putCompletion({
+              templateId: tpl.id,
+              date: target.date,
+              completedAt: target.completedAt,
+              amount: cur - 1,
+            });
+          }
+          const newPet = reverseXp(fam.pet, xp);
+          await updateFamily({ pet: newPet });
+          fam.pet = newPet;
+          xpDelta = -xp;
+        }
+      }
     } else {
-      // Sessions: toggle today's tick, or undo the latest week tick when the
-      // weekly target is already met on another day (e.g. 1/1 RSM done Mon,
-      // kid tries to uncheck on Tue — was incorrectly adding a 2nd tick).
+      // Daily: check/uncheck toggle for today.
       if (existing) {
         await deleteCompletion(tpl.id, date);
         const newPet = reverseXp(fam.pet, xp);
         await updateFamily({ pet: newPet });
         fam.pet = newPet;
         xpDelta = -xp;
-      } else if (tpl.cadence === "weekly") {
-        const week = weekStartKey(new Date(date));
-        const weekEnd = endOfWeek(week);
-        const weekRows = (await listCompletions("SINGLETON", week, weekEnd)).filter(
-          (c) => c.templateId === tpl.id,
-        );
-        const doneThisWeek = weekRows.length;
-        if (doneThisWeek >= tpl.weeklyTarget && tpl.weeklyTarget > 0) {
-          const latest = latestSessionCompletion(weekRows, tpl.id);
-          if (!latest) throw new HttpError(500, "Weekly completion missing");
-          await deleteCompletion(tpl.id, latest.date);
-          const newPet = reverseXp(fam.pet, xp);
-          await updateFamily({ pet: newPet });
-          fam.pet = newPet;
-          xpDelta = -xp;
-        } else {
-          await putCompletion({
-            templateId: tpl.id,
-            date,
-            completedAt: new Date().toISOString(),
-          });
-          const r = awardXp(fam.pet, xp);
-          await updateFamily({ pet: r.pet });
-          fam.pet = r.pet;
-          xpDelta = r.xpDelta;
-          leveledUp = r.leveledUp;
-          unlocked = r.unlocked;
-        }
       } else {
         await putCompletion({
           templateId: tpl.id,
@@ -472,6 +497,7 @@ app.post("/complete", async (c) => {
     await updateFamily({
       pet: bonusResult.family.pet,
       streak: bonusResult.family.streak,
+      streakShields: bonusResult.family.streakShields ?? 0,
       lastStreakDate: bonusResult.family.lastStreakDate,
     });
     state = await loadState(date, false);
@@ -645,6 +671,57 @@ app.post("/claims/:id/resolve", async (c) => {
     }
   }
   return c.json({ ok: true });
+});
+
+// ------- POST /equip (kid-facing wardrobe, no PIN) ------------------------
+
+app.post("/equip", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Partial<EquipRequest>;
+  const slot = body.slot;
+  if (slot !== "collar" && slot !== "hat" && slot !== "scene" && slot !== "treat") {
+    throw new HttpError(400, "Invalid slot");
+  }
+  const rawFam = await getFamily();
+  if (!rawFam) throw new HttpError(404, "Family not found");
+  const fam = toFamilyMeta(rawFam);
+
+  const equipped = { ...fam.pet.equipped };
+  if (body.cosmeticId == null || body.cosmeticId === "") {
+    delete equipped[slot];
+  } else {
+    const cosmetic = COSMETICS.find((cm) => cm.id === body.cosmeticId);
+    if (!cosmetic || cosmetic.slot !== slot) throw new HttpError(400, "Invalid cosmetic");
+    const unlockedByLevel = cosmetic.unlocksAtLevel <= levelFromXp(fam.pet.xp).level;
+    if (!fam.pet.unlocked.includes(cosmetic.id) && !unlockedByLevel) {
+      throw new HttpError(403, "Cosmetic not unlocked yet");
+    }
+    equipped[slot] = cosmetic.id;
+  }
+  const pet: PetState = { ...fam.pet, equipped };
+  await updateFamily({ pet });
+  const resp: EquipResponse = { pet };
+  return c.json(resp);
+});
+
+// ------- POST /streak-shield/buy (kid-facing, spends XP) ------------------
+
+app.post("/streak-shield/buy", async (c) => {
+  const rawFam = await getFamily();
+  if (!rawFam) throw new HttpError(404, "Family not found");
+  const fam = toFamilyMeta(rawFam);
+  const shields = fam.streakShields ?? 0;
+  if (shields >= STREAK_SHIELD.max) {
+    throw new HttpError(400, `You can only hold ${STREAK_SHIELD.max} shields`);
+  }
+  if (fam.pet.xp < STREAK_SHIELD.cost) {
+    throw new HttpError(400, `Not enough XP. Need ${STREAK_SHIELD.cost}, have ${fam.pet.xp}.`);
+  }
+  const pet = reverseXp(fam.pet, STREAK_SHIELD.cost);
+  await updateFamily({ pet, streakShields: shields + 1 });
+  const resp: BuyShieldResponse = {
+    family: { ...fam, pet, streakShields: shields + 1 },
+  };
+  return c.json(resp);
 });
 
 // ------- POST /verify-pin (used by parent panel gate) --------------------

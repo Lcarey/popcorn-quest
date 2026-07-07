@@ -10,18 +10,32 @@
 // =============================================================================
 
 import { AnimatePresence, motion, useAnimation } from "framer-motion";
-import { forwardRef, useImperativeHandle } from "react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 import {
   levelFromXp,
+  nextCosmeticUnlock,
   type PetMood,
   type PetState,
   type WeatherCondition,
   type WeatherToday,
 } from "@popcorn/shared";
+import { playBark, vibrate } from "../lib/feedback";
 
 export interface PopcornHandle {
   celebrate: () => Promise<void>;
+  /** Full-day finish: backflip + big burst. */
+  bigCelebrate: () => Promise<void>;
 }
+
+// Random reaction when the kid taps Popcorn — she's a dog, not a button.
+const TAP_REACTIONS = [
+  { y: [0, -24, 0, -8, 0], transition: { duration: 0.6 } }, // jump
+  { rotate: [0, -12, 12, -8, 8, 0], transition: { duration: 0.5 } }, // wiggle
+  { scale: [1, 1.15, 0.95, 1], rotate: [0, 6, -6, 0], transition: { duration: 0.5 } }, // bounce
+  { rotate: [0, 360], transition: { duration: 0.6 } }, // spin
+];
+
+const TAP_EMOJIS = ["💖", "🐾", "⭐", "🦴", "🎾", "💕"];
 
 interface PopcornProps {
   pet: PetState;
@@ -44,6 +58,7 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
 ) {
   const controls = useAnimation();
   const sparkleControls = useAnimation();
+  const [burst, setBurst] = useState<{ id: number; emoji: string } | null>(null);
 
   useImperativeHandle(ref, () => ({
     async celebrate() {
@@ -60,12 +75,27 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
         }),
       ]);
     },
+    async bigCelebrate() {
+      await Promise.all([
+        controls.start({
+          y: [0, -40, 0, -16, 0],
+          rotate: [0, -360],
+          transition: { duration: 1.1 },
+        }),
+        sparkleControls.start({
+          opacity: [0, 1, 1, 0],
+          scale: [0.6, 1.6, 1.3, 0.4],
+          transition: { duration: 1.1 },
+        }),
+      ]);
+    },
   }));
 
   const hat = pet.equipped.hat;
   const collar = pet.equipped.collar ?? "collar-red";
   const scene = pet.equipped.scene ?? "scene-yard";
   const { level, intoLevel, nextLevelXp } = levelFromXp(pet.xp);
+  const nextUnlock = nextCosmeticUnlock(level);
 
   const idle: { y: number[]; rotate?: number[]; duration: number } = (() => {
     switch (mood) {
@@ -83,21 +113,20 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
   return (
     <div className="relative select-none">
       <SceneBackground scene={scene} />
-      <CornerOverlays
-        weather={weather}
-        level={level}
-        intoLevel={intoLevel}
-        nextLevelXp={nextLevelXp}
-      />
+      <CornerOverlays weather={weather} />
 
       <button
         type="button"
         onClick={async () => {
           onTap?.();
-          await controls.start({
-            scale: [1, 1.06, 0.98, 1],
-            transition: { duration: 0.3 },
+          playBark();
+          vibrate(15);
+          setBurst({
+            id: Date.now(),
+            emoji: TAP_EMOJIS[Math.floor(Math.random() * TAP_EMOJIS.length)],
           });
+          const reaction = TAP_REACTIONS[Math.floor(Math.random() * TAP_REACTIONS.length)];
+          await controls.start(reaction);
         }}
         className="relative w-full flex items-center justify-center pt-2 pb-2 cursor-pointer"
         aria-label={`${pet.name} the dog, mood ${mood}`}
@@ -189,11 +218,72 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
           >
             <Sparkles />
           </motion.div>
+
+          {/* Tap reaction burst */}
+          <AnimatePresence>
+            {burst && (
+              <motion.div
+                key={burst.id}
+                initial={{ opacity: 1, y: 0, scale: 0.6 }}
+                animate={{ opacity: 0, y: -70, scale: 1.4 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.9, ease: "easeOut" }}
+                onAnimationComplete={() => setBurst(null)}
+                className="pointer-events-none absolute left-1/2 top-6 -translate-x-1/2 text-4xl z-30"
+              >
+                {burst.emoji}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       </button>
+
+      <XpBar level={level} intoLevel={intoLevel} nextLevelXp={nextLevelXp} nextUnlock={nextUnlock} />
     </div>
   );
 });
+
+function XpBar({
+  level,
+  intoLevel,
+  nextLevelXp,
+  nextUnlock,
+}: {
+  level: number;
+  intoLevel: number;
+  nextLevelXp: number;
+  nextUnlock: ReturnType<typeof nextCosmeticUnlock>;
+}) {
+  const pct = nextLevelXp > 0 ? Math.min(1, intoLevel / nextLevelXp) : 1;
+  const remaining = Math.max(0, nextLevelXp - intoLevel);
+  return (
+    <div className="px-2 pb-1">
+      <div className="flex items-baseline justify-between mb-1">
+        <div className="font-display font-bold text-sm text-cocoa">Level {level}</div>
+        <div className="text-xs font-semibold text-cocoa/70">
+          {remaining} XP to Level {level + 1}
+        </div>
+      </div>
+      <div className="h-3.5 bg-white/80 rounded-full overflow-hidden border-2 border-white shadow-inner">
+        <motion.div
+          className="h-full rounded-full bg-gradient-to-r from-butter via-peach to-coral"
+          initial={false}
+          animate={{ width: `${Math.round(pct * 100)}%` }}
+          transition={{ type: "spring", stiffness: 120, damping: 20 }}
+        />
+      </div>
+      {nextUnlock && (
+        <div className="mt-1.5 text-xs font-semibold text-cocoa/80 text-center">
+          Level {nextUnlock.unlocksAtLevel} unlocks{" "}
+          <span className="text-coral font-bold">
+            {nextUnlock.emoji} {nextUnlock.name}
+          </span>
+          !
+        </div>
+      )}
+    </div>
+  );
+}
 
 function HatOverlay({ id }: { id: string }) {
   const wrapper = "absolute left-1/2 -translate-x-1/2 -top-3 text-5xl drop-shadow-md z-20";
@@ -244,17 +334,7 @@ function arlingtonWeatherHref(): string {
   return "https://weather.com/weather/today/l/Arlington+MA";
 }
 
-function CornerOverlays({
-  weather,
-  level,
-  intoLevel,
-  nextLevelXp,
-}: {
-  weather: WeatherToday | null | undefined;
-  level: number;
-  intoLevel: number;
-  nextLevelXp: number;
-}) {
+function CornerOverlays({ weather }: { weather: WeatherToday | null | undefined }) {
   const w = weather ?? undefined;
   const icon = conditionEmoji(w?.condition ?? null);
   const weatherHref = arlingtonWeatherHref();
@@ -303,12 +383,6 @@ function CornerOverlays({
           )}
         </div>
       </a>
-      <div className="absolute bottom-2 left-3 flex flex-col items-start gap-0.5 drop-shadow-[0_1px_1px_rgba(255,255,255,0.85)]">
-        <div className="text-xs font-display font-bold text-cocoa leading-none">LV {level}</div>
-        <div className="text-[10px] font-semibold text-cocoa/85 leading-none">
-          {intoLevel} / {nextLevelXp} XP
-        </div>
-      </div>
     </div>
   );
 }
