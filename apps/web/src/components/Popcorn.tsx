@@ -20,7 +20,7 @@ import {
   type WeatherToday,
 } from "@popcorn/shared";
 import { playBark, vibrate } from "../lib/feedback";
-import { HatArt } from "./CosmeticArt";
+import { CollarArt, HatArt } from "./CosmeticArt";
 
 export interface PopcornHandle {
   celebrate: () => Promise<void>;
@@ -64,6 +64,15 @@ const HEAD_ANCHOR: Record<PetMood, { x: number; y: number; angle: number }> = {
   ecstatic: { x: 47, y: 25, angle: -5 }, // photo2
 };
 
+// Same idea for her neck: center point, band tilt, and how wide the collar
+// should be (% of frame) given how close-up each photo is.
+const NECK_ANCHOR: Record<PetMood, { x: number; y: number; angle: number; w: number }> = {
+  sleepy: { x: 43, y: 54, angle: -42, w: 20 }, // photo4: neck behind ears
+  neutral: { x: 54, y: 58, angle: -5, w: 20 }, // photo3
+  happy: { x: 50, y: 62, angle: 0, w: 30 }, // photo1: close-up
+  ecstatic: { x: 46, y: 46, angle: -10, w: 16 }, // photo2: full body
+};
+
 export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
   { pet, mood, onTap, weather },
   ref,
@@ -104,7 +113,7 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
   }));
 
   const hat = pet.equipped.hat;
-  const collar = pet.equipped.collar ?? "collar-red";
+  const collar = pet.equipped.collar;
   const scene = pet.equipped.scene ?? "scene-yard";
   const { level, intoLevel, nextLevelXp } = levelFromXp(pet.xp);
   const nextUnlock = nextCosmeticUnlock(level);
@@ -219,7 +228,7 @@ export const Popcorn = forwardRef<PopcornHandle, PopcornProps>(function Popcorn(
             {hat && <HatOverlay id={hat} mood={mood} />}
 
             {/* Collar overlay */}
-            <CollarOverlay id={collar} />
+            {collar && <CollarOverlay id={collar} mood={mood} />}
 
             {/* Treat overlay */}
             {pet.equipped.treat && <TreatOverlay id={pet.equipped.treat} />}
@@ -430,34 +439,28 @@ function CornerOverlays({ weather }: { weather: WeatherToday | null | undefined 
   );
 }
 
-function CollarOverlay({ id }: { id: string }) {
-  const palette: Record<string, string[]> = {
-    "collar-red": ["#ef4444", "#fbbf24"],
-    "collar-rainbow": ["#fb7185", "#fbbf24", "#86efac", "#7dd3fc", "#c4b5fd"],
-  };
-  const colors = palette[id];
-  if (!colors) return null;
-  const isRainbow = id === "collar-rainbow";
+// Wraps the collar around Popcorn's actual neck in the current mood photo,
+// springing to the new spot when the photo crossfades (same as HatOverlay).
+function CollarOverlay({ id, mood }: { id: string; mood: PetMood }) {
+  const a = NECK_ANCHOR[mood];
   return (
-    <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 z-20">
-      {isRainbow ? (
-        <div className="flex h-3 rounded-full overflow-hidden border-2 border-white shadow-chunky-sm">
-          {colors.map((c, i) => (
-            <div key={i} style={{ background: c, width: 12, height: "100%" }} />
-          ))}
-        </div>
-      ) : (
-        <div
-          className="h-3 w-16 rounded-full border-2 border-white shadow-chunky-sm relative flex items-center justify-center"
-          style={{ background: colors[0] }}
+    <motion.div
+      className="absolute z-20 pointer-events-none"
+      initial={false}
+      animate={{ left: `${a.x}%`, top: `${a.y}%`, width: `${a.w}%` }}
+      transition={{ type: "spring", stiffness: 170, damping: 20 }}
+    >
+      <div className="w-full" style={{ transform: "translate(-50%, -50%)" }}>
+        <motion.div
+          initial={false}
+          animate={{ rotate: a.angle }}
+          transition={{ type: "spring", stiffness: 170, damping: 20 }}
+          className="drop-shadow-md"
         >
-          <div
-            className="absolute w-3 h-3 rounded-full border-2 border-white"
-            style={{ background: colors[1] }}
-          />
-        </div>
-      )}
-    </div>
+          <CollarArt id={id} className="w-full" />
+        </motion.div>
+      </div>
+    </motion.div>
   );
 }
 
