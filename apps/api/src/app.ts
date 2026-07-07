@@ -9,6 +9,7 @@ import { cors } from "hono/cors";
 import bcrypt from "bcryptjs";
 import {
   COSMETICS,
+  STREAK_SHIELD,
   XP_PER,
   levelFromXp,
   todayKey,
@@ -17,7 +18,10 @@ import {
 import type {
   AdhocRequest,
   AdhocTask,
+  BuyShieldResponse,
   ClaimRewardRequest,
+  EquipRequest,
+  EquipResponse,
   Completion,
   CompleteRequest,
   CompleteResponse,
@@ -107,7 +111,7 @@ type RawFamily = NonNullable<Awaited<ReturnType<typeof getFamily>>>;
 
 /** Normalize META record for API / XP logic (handles partial/corrupted pet in DynamoDB). */
 function toFamilyMeta(rec: RawFamily): FamilyMeta {
-  const { PK: _pk, SK: _sk, type: _t, pinHash: _ph, pet: petIn, streak, lastStreakDate, createdAt } =
+  const { PK: _pk, SK: _sk, type: _t, pinHash: _ph, pet: petIn, streak, lastStreakDate, streakShields, createdAt } =
     rec as RawFamily & Record<string, unknown>;
   const p = (petIn ?? {}) as Partial<PetState>;
   const xp = typeof p.xp === "number" && Number.isFinite(p.xp) ? Math.max(0, p.xp) : 0;
@@ -127,6 +131,10 @@ function toFamilyMeta(rec: RawFamily): FamilyMeta {
   return {
     streak: typeof streak === "number" ? streak : 0,
     lastStreakDate: typeof lastStreakDate === "string" ? lastStreakDate : undefined,
+    streakShields:
+      typeof streakShields === "number" && streakShields >= 0
+        ? Math.min(STREAK_SHIELD.max, Math.floor(streakShields))
+        : 0,
     createdAt: typeof createdAt === "string" ? createdAt : new Date().toISOString(),
     pet,
   };
@@ -205,6 +213,7 @@ app.post("/setup", async (c) => {
   const pinHash = await bcrypt.hash(pin, 10);
   const family: FamilyMeta = {
     streak: 0,
+    streakShields: 0,
     pet: {
       name: petName,
       xp: 0,
@@ -488,6 +497,7 @@ app.post("/complete", async (c) => {
     await updateFamily({
       pet: bonusResult.family.pet,
       streak: bonusResult.family.streak,
+      streakShields: bonusResult.family.streakShields ?? 0,
       lastStreakDate: bonusResult.family.lastStreakDate,
     });
     state = await loadState(date, false);
@@ -661,6 +671,57 @@ app.post("/claims/:id/resolve", async (c) => {
     }
   }
   return c.json({ ok: true });
+});
+
+// ------- POST /equip (kid-facing wardrobe, no PIN) ------------------------
+
+app.post("/equip", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Partial<EquipRequest>;
+  const slot = body.slot;
+  if (slot !== "collar" && slot !== "hat" && slot !== "scene" && slot !== "treat") {
+    throw new HttpError(400, "Invalid slot");
+  }
+  const rawFam = await getFamily();
+  if (!rawFam) throw new HttpError(404, "Family not found");
+  const fam = toFamilyMeta(rawFam);
+
+  const equipped = { ...fam.pet.equipped };
+  if (body.cosmeticId == null || body.cosmeticId === "") {
+    delete equipped[slot];
+  } else {
+    const cosmetic = COSMETICS.find((cm) => cm.id === body.cosmeticId);
+    if (!cosmetic || cosmetic.slot !== slot) throw new HttpError(400, "Invalid cosmetic");
+    const unlockedByLevel = cosmetic.unlocksAtLevel <= levelFromXp(fam.pet.xp).level;
+    if (!fam.pet.unlocked.includes(cosmetic.id) && !unlockedByLevel) {
+      throw new HttpError(403, "Cosmetic not unlocked yet");
+    }
+    equipped[slot] = cosmetic.id;
+  }
+  const pet: PetState = { ...fam.pet, equipped };
+  await updateFamily({ pet });
+  const resp: EquipResponse = { pet };
+  return c.json(resp);
+});
+
+// ------- POST /streak-shield/buy (kid-facing, spends XP) ------------------
+
+app.post("/streak-shield/buy", async (c) => {
+  const rawFam = await getFamily();
+  if (!rawFam) throw new HttpError(404, "Family not found");
+  const fam = toFamilyMeta(rawFam);
+  const shields = fam.streakShields ?? 0;
+  if (shields >= STREAK_SHIELD.max) {
+    throw new HttpError(400, `You can only hold ${STREAK_SHIELD.max} shields`);
+  }
+  if (fam.pet.xp < STREAK_SHIELD.cost) {
+    throw new HttpError(400, `Not enough XP. Need ${STREAK_SHIELD.cost}, have ${fam.pet.xp}.`);
+  }
+  const pet = reverseXp(fam.pet, STREAK_SHIELD.cost);
+  await updateFamily({ pet, streakShields: shields + 1 });
+  const resp: BuyShieldResponse = {
+    family: { ...fam, pet, streakShields: shields + 1 },
+  };
+  return c.json(resp);
 });
 
 // ------- POST /verify-pin (used by parent panel gate) --------------------

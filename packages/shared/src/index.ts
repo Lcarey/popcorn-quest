@@ -57,8 +57,16 @@ export interface FamilyMeta {
   pet: PetState;
   streak: number; // consecutive days with all daily tasks complete
   lastStreakDate?: string; // yyyy-mm-dd of last all-done day
+  // Streak shields: each one auto-covers a single missed day so the streak
+  // survives. Bought with XP from the reward shop.
+  streakShields?: number;
   createdAt: string;
 }
+
+export const STREAK_SHIELD = {
+  cost: 30, // XP
+  max: 2,
+} as const;
 
 // =============================================================================
 // Rewards shop
@@ -103,6 +111,21 @@ export interface ClaimRewardRequest {
 export interface ResolveClaimRequest {
   pin: string;
   approve: boolean;
+}
+
+// Kid-facing: equip/unequip an unlocked cosmetic (no PIN).
+export interface EquipRequest {
+  slot: Cosmetic["slot"];
+  /** null clears the slot (e.g. take the hat off). */
+  cosmeticId: string | null;
+}
+
+export interface EquipResponse {
+  pet: PetState;
+}
+
+export interface BuyShieldResponse {
+  family: FamilyMeta;
 }
 
 // =============================================================================
@@ -298,24 +321,32 @@ export interface Cosmetic {
   id: string;
   slot: "collar" | "hat" | "scene" | "treat";
   name: string;
+  emoji: string;
   unlocksAtLevel: number;
 }
 
 export const COSMETICS: Cosmetic[] = [
-  { id: "collar-red", slot: "collar", name: "Red Collar", unlocksAtLevel: 1 },
-  { id: "scene-yard", slot: "scene", name: "Sunny Yard", unlocksAtLevel: 1 },
-  { id: "treat-bone", slot: "treat", name: "Bone Treat", unlocksAtLevel: 2 },
-  { id: "collar-rainbow", slot: "collar", name: "Rainbow Collar", unlocksAtLevel: 3 },
-  { id: "hat-party", slot: "hat", name: "Party Hat", unlocksAtLevel: 4 },
-  { id: "scene-park", slot: "scene", name: "Dog Park", unlocksAtLevel: 5 },
-  { id: "hat-crown", slot: "hat", name: "Royal Crown", unlocksAtLevel: 7 },
-  { id: "scene-beach", slot: "scene", name: "Beach Day", unlocksAtLevel: 9 },
-  { id: "hat-graduation", slot: "hat", name: "Graduation Cap", unlocksAtLevel: 12 },
-  { id: "scene-space", slot: "scene", name: "Outer Space", unlocksAtLevel: 15 },
+  { id: "collar-red", slot: "collar", name: "Red Collar", emoji: "🔴", unlocksAtLevel: 1 },
+  { id: "scene-yard", slot: "scene", name: "Sunny Yard", emoji: "🌻", unlocksAtLevel: 1 },
+  { id: "treat-bone", slot: "treat", name: "Bone Treat", emoji: "🦴", unlocksAtLevel: 2 },
+  { id: "collar-rainbow", slot: "collar", name: "Rainbow Collar", emoji: "🌈", unlocksAtLevel: 3 },
+  { id: "hat-party", slot: "hat", name: "Party Hat", emoji: "🎉", unlocksAtLevel: 4 },
+  { id: "scene-park", slot: "scene", name: "Dog Park", emoji: "🏞️", unlocksAtLevel: 5 },
+  { id: "hat-crown", slot: "hat", name: "Royal Crown", emoji: "👑", unlocksAtLevel: 7 },
+  { id: "scene-beach", slot: "scene", name: "Beach Day", emoji: "🏖️", unlocksAtLevel: 9 },
+  { id: "hat-graduation", slot: "hat", name: "Graduation Cap", emoji: "🎓", unlocksAtLevel: 12 },
+  { id: "scene-space", slot: "scene", name: "Outer Space", emoji: "🚀", unlocksAtLevel: 15 },
 ];
 
 export function cosmeticsUnlockedAt(level: number): Cosmetic[] {
   return COSMETICS.filter((c) => c.unlocksAtLevel <= level);
+}
+
+/** The next cosmetic the kid will unlock by leveling, if any remain. */
+export function nextCosmeticUnlock(level: number): Cosmetic | undefined {
+  return COSMETICS.filter((c) => c.unlocksAtLevel > level).sort(
+    (a, b) => a.unlocksAtLevel - b.unlocksAtLevel,
+  )[0];
 }
 
 // =============================================================================

@@ -186,7 +186,8 @@ export function buildHistory(
 
 // After a completion, if every daily task is now done for `date` AND the date
 // is today, bump the streak (carrying over from yesterday) and award the
-// full-day bonus exactly once per day.
+// full-day bonus exactly once per day. Streak shields auto-cover missed days:
+// one shield per missed day, consumed only if they cover the whole gap.
 export function maybeAwardFullDayBonus(
   family: FamilyMeta,
   state: TodayState,
@@ -200,13 +201,35 @@ export function maybeAwardFullDayBonus(
   if (family.lastStreakDate === date) return { family, bonus: 0 }; // already credited
 
   const yesterday = priorDate(date);
-  const newStreak = family.lastStreakDate === yesterday ? family.streak + 1 : 1;
+  let shields = family.streakShields ?? 0;
+  let newStreak: number;
+  if (family.lastStreakDate === yesterday) {
+    newStreak = family.streak + 1;
+  } else if (family.lastStreakDate && shields > 0) {
+    // Walk back from yesterday to lastStreakDate, counting missed days.
+    // Bounded by shield count so an ancient lastStreakDate can't loop long.
+    let missed = 0;
+    let cursor = yesterday;
+    while (cursor !== family.lastStreakDate && missed <= shields) {
+      missed++;
+      cursor = priorDate(cursor);
+    }
+    if (cursor === family.lastStreakDate && missed <= shields) {
+      newStreak = family.streak + 1;
+      shields -= missed;
+    } else {
+      newStreak = 1;
+    }
+  } else {
+    newStreak = 1;
+  }
   const award = awardXp(family.pet, XP_PER.fullDayBonus);
   return {
     family: {
       ...family,
       pet: award.pet,
       streak: newStreak,
+      streakShields: shields,
       lastStreakDate: date,
     },
     bonus: XP_PER.fullDayBonus,
@@ -214,9 +237,11 @@ export function maybeAwardFullDayBonus(
 }
 
 export function priorDate(date: string, daysAgo = 1): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - daysAgo);
-  return todayKey(d);
+  // Pure local-date arithmetic: parsing as UTC and formatting local (the old
+  // approach) drifts by a day on non-UTC machines and isn't self-consistent
+  // when chained (priorDate(priorDate(x)) !== priorDate(x, 2)).
+  const [y, m, d] = date.split("-").map(Number);
+  return todayKey(new Date(y, m - 1, d - daysAgo));
 }
 
 export function xpForTask(template: TaskTemplate): number {

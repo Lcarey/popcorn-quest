@@ -4,7 +4,9 @@ import { Link } from "react-router-dom";
 import {
   moodFromProgress,
   todayKey,
+  XP_PER,
   type CompleteResponse,
+  type Cosmetic,
   type Reward,
   type TodayState,
   type CalendarEventsResponse,
@@ -16,12 +18,17 @@ import { WeeklyRow } from "../components/WeeklyRow";
 import { CumulativeWeeklyRow } from "../components/CumulativeWeeklyRow";
 import { AddQuestSheet } from "../components/AddQuestSheet";
 import { CelebrateToast } from "../components/CelebrateToast";
+import { FullDayCelebration } from "../components/FullDayCelebration";
 import { HistoryHeatmap } from "../components/HistoryHeatmap";
 import { RewardShop } from "../components/RewardShop";
+import { StreakBadge } from "../components/StreakBadge";
 import { UpcomingCalendar } from "../components/UpcomingCalendar";
+import { WardrobeSheet } from "../components/WardrobeSheet";
+import { questIdeaForToday } from "../lib/sideQuestIdeas";
 import {
   playCheck,
   playClaim,
+  playFanfare,
   playLevelUp,
   playUncheck,
   vibrate,
@@ -51,6 +58,9 @@ export function Home() {
 
   const [celebrate, setCelebrate] = useState<CompleteResponse | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [wardrobeOpen, setWardrobeOpen] = useState(false);
+  // Streak count to show in the full-day takeover; null = hidden.
+  const [fullDayStreak, setFullDayStreak] = useState<number | null>(null);
 
   // Optimistic completion. Flip the targeted task's checkbox immediately and
   // fire feedback; the server response 100-300ms later overwrites the rest
@@ -110,8 +120,21 @@ export function Home() {
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(["state", date], ctx.prev);
     },
-    onSuccess: (resp) => {
+    onSuccess: (resp, _vars, ctx) => {
       qc.setQueryData(["state", date], resp.state);
+      // Full-day finish: the server just credited today's streak. This is the
+      // biggest moment of the day — takeover celebration instead of the toast.
+      const becameFullDay =
+        resp.state.family.lastStreakDate === date &&
+        ctx?.prev?.family.lastStreakDate !== date;
+      if (becameFullDay) {
+        playFanfare();
+        vibrate([40, 60, 40, 60, 80]);
+        popcornRef.current?.bigCelebrate();
+        setFullDayStreak(resp.state.family.streak);
+        setTimeout(() => setFullDayStreak(null), 3200);
+        return;
+      }
       if (resp.leveledUp) {
         playLevelUp();
         vibrate([30, 60, 30]);
@@ -141,6 +164,37 @@ export function Home() {
     },
   });
 
+  // Wardrobe equip — optimistic so the outfit changes under the kid's finger.
+  const equipMut = useMutation({
+    mutationFn: (vars: { slot: Cosmetic["slot"]; cosmeticId: string | null }) =>
+      api.equip(vars),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["state", date] });
+      const prev = qc.getQueryData<TodayState>(["state", date]);
+      if (!prev) return { prev };
+      const next = structuredClone(prev) as TodayState;
+      if (vars.cosmeticId) next.family.pet.equipped[vars.slot] = vars.cosmeticId;
+      else delete next.family.pet.equipped[vars.slot];
+      qc.setQueryData(["state", date], next);
+      playCheck();
+      vibrate(15);
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["state", date], ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["state", date] }),
+  });
+
+  const shieldMut = useMutation({
+    mutationFn: () => api.buyShield(),
+    onSuccess: async () => {
+      playClaim();
+      vibrate(40);
+      await qc.invalidateQueries({ queryKey: ["state", date] });
+    },
+  });
+
   useEffect(() => {
     const onVis = () => qc.invalidateQueries({ queryKey: ["state", date] });
     document.addEventListener("visibilitychange", onVis);
@@ -150,6 +204,23 @@ export function Home() {
   const state = stateQuery.data;
   const mood = state ? moodFromProgress(state.todayProgress) : "neutral";
   const xpBalance = state?.family.pet.xp ?? 0;
+  const questIdea = questIdeaForToday(date);
+
+  // Rough XP a normal full day earns — used by the shop to say "≈ N days".
+  const estDailyXp = state
+    ? Math.max(
+        1,
+        Math.round(
+          state.daily.length * XP_PER.daily +
+            XP_PER.fullDayBonus +
+            state.weekly.reduce((sum, w) => {
+              const perWeek =
+                w.template.weeklyTrack === "cumulative" ? 7 : Math.min(w.target, 7);
+              return sum + (perWeek * XP_PER.weekly) / 7;
+            }, 0),
+        ),
+      )
+    : 1;
 
   return (
     <div className="space-y-4">
@@ -163,10 +234,11 @@ export function Home() {
 
       {/* Popcorn + streak */}
       <div className="card p-3">
-        <div className="flex justify-end gap-2 mb-2">
-          <div className="chip bg-butter">
-            🔥 <span>Streak: {state?.family.streak ?? 0}</span>
-          </div>
+        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+          <StreakBadge
+            streak={state?.family.streak ?? 0}
+            shields={state?.family.streakShields ?? 0}
+          />
           <div className="chip">
             🐾 <span>Mood: {mood}</span>
           </div>
@@ -179,6 +251,13 @@ export function Home() {
             weather={weatherQuery.data}
           />
         )}
+        <button
+          type="button"
+          onClick={() => setWardrobeOpen(true)}
+          className="btn-secondary w-full mt-2 text-base py-2"
+        >
+          👗 Dress {state?.family.pet.name ?? "Popcorn"}
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,22rem)] gap-6 lg:items-start">
@@ -255,8 +334,22 @@ export function Home() {
                 ))}
               </div>
             ) : (
-              <div className="card text-center text-cocoa/60 text-sm py-4">
-                Nothing here yet. Tap <span className="text-coral font-bold">+ Add</span> to make one up!
+              <div className="card text-center text-sm py-4 space-y-2">
+                <div className="text-cocoa/70">
+                  <span className="font-bold text-cocoa">Popcorn's idea:</span>{" "}
+                  {questIdea.emoji} "{questIdea.title}"
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary text-sm px-4 py-2"
+                  onClick={() => adhocMut.mutate({ title: questIdea.title, emoji: questIdea.emoji })}
+                  disabled={adhocMut.isPending}
+                >
+                  {adhocMut.isPending ? "Adding…" : "Add it! 🐶"}
+                </button>
+                <div className="text-xs text-cocoa/50">
+                  or tap <span className="text-coral font-bold">+ Add</span> to make up your own
+                </div>
               </div>
             )}
           </Section>
@@ -271,13 +364,16 @@ export function Home() {
         </aside>
       </div>
 
-      {/* Rewards */}
-      {state && (state.rewards.length > 0 || state.pendingClaims.length > 0) && (
+      {/* Rewards (always shown — the streak shield lives here too) */}
+      {state && (
         <RewardShop
           rewards={state.rewards}
           pendingClaims={state.pendingClaims}
           xpBalance={xpBalance}
+          estDailyXp={estDailyXp}
+          shields={state.family.streakShields ?? 0}
           onClaim={(r) => claimMut.mutate(r)}
+          onBuyShield={() => shieldMut.mutate()}
         />
       )}
 
@@ -312,6 +408,21 @@ export function Home() {
         unlocked={celebrate?.unlocked}
         onDone={() => setCelebrate(null)}
       />
+
+      <FullDayCelebration
+        show={fullDayStreak !== null}
+        streak={fullDayStreak ?? 0}
+        onDone={() => setFullDayStreak(null)}
+      />
+
+      {state && (
+        <WardrobeSheet
+          open={wardrobeOpen}
+          onClose={() => setWardrobeOpen(false)}
+          pet={state.family.pet}
+          onEquip={(slot, cosmeticId) => equipMut.mutate({ slot, cosmeticId })}
+        />
+      )}
 
       <div className="pt-6 pb-2 text-center space-y-1">
         <div>
