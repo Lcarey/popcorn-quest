@@ -391,6 +391,7 @@ export function Home() {
           rewards={state.rewards}
           pendingClaims={state.pendingClaims}
           xpBalance={xpBalance}
+          totalXp={state.family.pet.xp}
           estDailyXp={estDailyXp}
           shields={state.family.streakShields ?? 0}
           onClaim={(r) => claimMut.mutate(r)}
