@@ -42,6 +42,8 @@ import type {
   UpdateTemplateRequest,
   WeatherToday,
   CalendarEventsResponse,
+  XpLogEntry,
+  XpLogResponse,
 } from "@popcorn/shared";
 import {
   deleteCompletion,
@@ -56,12 +58,14 @@ import {
   listCompletions,
   listRewards,
   listTemplates,
+  listXpLog,
   putAdhoc,
   putClaim,
   putCompletion,
   putFamily,
   putReward,
   putTemplate,
+  putXpLog,
   updateFamily,
 } from "./db.js";
 import {
@@ -71,7 +75,9 @@ import {
   latestSessionCompletion,
   maybeAwardFullDayBonus,
   priorDate,
-  reverseXp,
+  refundXp,
+  reverseEarn,
+  spendXp,
   xpForTask,
 } from "./engine.js";
 import { fetchWeatherToday } from "./weather.js";
@@ -107,6 +113,25 @@ function newId(): string {
   return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-6);
 }
 
+// Record an XP change so parents can audit how XP was earned/spent. `balance`
+// is the pet's XP after the change. Best-effort: never let logging failures
+// break the mutation that triggered them.
+async function logXp(amount: number, reason: string, balance?: number): Promise<void> {
+  if (amount === 0) return;
+  const entry: XpLogEntry = {
+    id: newId(),
+    at: new Date().toISOString(),
+    amount,
+    reason,
+    balance,
+  };
+  try {
+    await putXpLog(entry);
+  } catch (e) {
+    console.error("xp-log write failed:", e);
+  }
+}
+
 type RawFamily = NonNullable<Awaited<ReturnType<typeof getFamily>>>;
 
 /** Normalize META record for API / XP logic (handles partial/corrupted pet in DynamoDB). */
@@ -115,9 +140,14 @@ function toFamilyMeta(rec: RawFamily): FamilyMeta {
     rec as RawFamily & Record<string, unknown>;
   const p = (petIn ?? {}) as Partial<PetState>;
   const xp = typeof p.xp === "number" && Number.isFinite(p.xp) ? Math.max(0, p.xp) : 0;
+  // Missing spendableXp (pre-split records) normalizes to 0: lifetime xp is
+  // preserved as "total earned" while the wallet resets to empty.
+  const spendableXp =
+    typeof p.spendableXp === "number" && Number.isFinite(p.spendableXp) ? Math.max(0, p.spendableXp) : 0;
   const pet: PetState = {
     name: typeof p.name === "string" && p.name.trim() ? p.name : "Popcorn",
     xp,
+    spendableXp,
     level:
       typeof p.level === "number" && p.level >= 1 ? p.level : levelFromXp(xp).level,
     unlocked:
@@ -203,6 +233,15 @@ app.get("/calendar-events", async (c) => {
 
 app.get("/cosmetics", (c) => c.json({ cosmetics: COSMETICS }));
 
+// ------- GET /xp-log (parent audit) --------------------------------------
+
+app.get("/xp-log", async (c) => {
+  const raw = Number(c.req.query("limit"));
+  const limit = Number.isFinite(raw) ? Math.max(1, Math.min(1000, Math.floor(raw))) : 200;
+  const entries = await listXpLog(limit);
+  return c.json({ entries } satisfies XpLogResponse);
+});
+
 // ------- POST /setup -----------------------------------------------------
 
 app.post("/setup", async (c) => {
@@ -217,6 +256,7 @@ app.post("/setup", async (c) => {
     pet: {
       name: petName,
       xp: 0,
+      spendableXp: 0,
       level: 1,
       unlocked: ["collar-red", "scene-yard"],
       equipped: { collar: "collar-red", scene: "scene-yard" },
@@ -233,6 +273,7 @@ app.post("/setup", async (c) => {
         emoji: "💊",
         cadence: "daily",
         weeklyTarget: 1,
+        repeatable: false,
         createdAt: new Date().toISOString(),
       },
       {
@@ -241,6 +282,16 @@ app.post("/setup", async (c) => {
         emoji: "🪥",
         cadence: "daily",
         weeklyTarget: 1,
+        repeatable: false,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: newId(),
+        title: "Beast Academy (1 page/day)",
+        emoji: "📚",
+        cadence: "daily",
+        weeklyTarget: 1,
+        repeatable: true,
         createdAt: new Date().toISOString(),
       },
       {
@@ -249,6 +300,16 @@ app.post("/setup", async (c) => {
         emoji: "🎵",
         cadence: "weekly",
         weeklyTarget: 3,
+        repeatable: true,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: newId(),
+        title: "Refill Popcorn's medicine (Sunday)",
+        emoji: "🗓️",
+        cadence: "weekly",
+        weeklyTarget: 1,
+        repeatable: false,
         createdAt: new Date().toISOString(),
       },
       {
@@ -257,6 +318,7 @@ app.post("/setup", async (c) => {
         emoji: "🧮",
         cadence: "weekly",
         weeklyTarget: 1,
+        repeatable: true,
         createdAt: new Date().toISOString(),
       },
     ];
@@ -360,11 +422,13 @@ app.post("/complete", async (c) => {
       xpDelta = r.xpDelta;
       leveledUp = r.leveledUp;
       unlocked = r.unlocked;
+      await logXp(r.xpDelta, `Side quest: ${adhoc.title}`, fam.pet.spendableXp);
     } else {
-      const newPet = reverseXp(fam.pet, XP_PER.adhoc);
+      const newPet = reverseEarn(fam.pet, XP_PER.adhoc);
       await updateFamily({ pet: newPet });
       fam.pet = newPet;
       xpDelta = -XP_PER.adhoc;
+      await logXp(-XP_PER.adhoc, `Undid side quest: ${adhoc.title}`, fam.pet.spendableXp);
     }
   } else if (body.templateId) {
     const templates = await listTemplates();
@@ -410,19 +474,22 @@ app.post("/complete", async (c) => {
           xpDelta = r.xpDelta;
           leveledUp = r.leveledUp;
           unlocked = r.unlocked;
+          await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp);
         }
       } else if (existing) {
         await deleteCompletion(tpl.id, date);
-        const newPet = reverseXp(fam.pet, xp);
+        const newPet = reverseEarn(fam.pet, xp);
         await updateFamily({ pet: newPet });
         fam.pet = newPet;
         xpDelta = -xp;
+        await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp);
       }
-    } else if (tpl.cadence === "weekly") {
-      // Weekly sessions: explicit +/- counter. Each +1 adds a check to today
-      // (multiple per day allowed, no target cap) and awards XP; each -1
-      // removes a check from today if any, else the most recent day, and
-      // refunds XP. Nothing to remove = no-op.
+    } else if (tpl.repeatable) {
+      // Repeatable +/- counter (daily "extra pages" and weekly "N times/week").
+      // Each +1 adds a check to today (multiple per day allowed, no cap) and
+      // awards XP; each -1 removes a check and refunds XP. For weekly, undo
+      // walks back to the most recent day if today has none; daily undo is
+      // scoped to today. Nothing to remove = no-op.
       const delta = Number(body.delta) || 0;
       if (delta > 0) {
         const oldAmount = existing ? (existing.amount ?? 1) : 0;
@@ -438,14 +505,17 @@ app.post("/complete", async (c) => {
         xpDelta = r.xpDelta;
         leveledUp = r.leveledUp;
         unlocked = r.unlocked;
+        await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp);
       } else if (delta < 0) {
-        const week = weekStartKey(new Date(date));
-        const weekEnd = endOfWeek(week);
-        const weekRows = (await listCompletions("SINGLETON", week, weekEnd)).filter(
-          (c) => c.templateId === tpl.id,
-        );
-        const todayRow = weekRows.find((c) => c.date === date && (c.amount ?? 1) > 0);
-        const target = todayRow ?? latestSessionCompletion(weekRows, tpl.id);
+        let target = existing && (existing.amount ?? 1) > 0 ? existing : undefined;
+        if (!target && tpl.cadence === "weekly") {
+          const week = weekStartKey(new Date(date));
+          const weekEnd = endOfWeek(week);
+          const weekRows = (await listCompletions("SINGLETON", week, weekEnd)).filter(
+            (cc) => cc.templateId === tpl.id,
+          );
+          target = latestSessionCompletion(weekRows, tpl.id);
+        }
         if (target) {
           const cur = target.amount ?? 1;
           if (cur <= 1) {
@@ -458,20 +528,22 @@ app.post("/complete", async (c) => {
               amount: cur - 1,
             });
           }
-          const newPet = reverseXp(fam.pet, xp);
+          const newPet = reverseEarn(fam.pet, xp);
           await updateFamily({ pet: newPet });
           fam.pet = newPet;
           xpDelta = -xp;
+          await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp);
         }
       }
     } else {
-      // Daily: check/uncheck toggle for today.
+      // Single check/uncheck toggle for today (daily-once and weekly-once).
       if (existing) {
         await deleteCompletion(tpl.id, date);
-        const newPet = reverseXp(fam.pet, xp);
+        const newPet = reverseEarn(fam.pet, xp);
         await updateFamily({ pet: newPet });
         fam.pet = newPet;
         xpDelta = -xp;
+        await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp);
       } else {
         await putCompletion({
           templateId: tpl.id,
@@ -484,6 +556,7 @@ app.post("/complete", async (c) => {
         xpDelta = r.xpDelta;
         leveledUp = r.leveledUp;
         unlocked = r.unlocked;
+        await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp);
       }
     }
   } else {
@@ -503,6 +576,7 @@ app.post("/complete", async (c) => {
     state = await loadState(date, false);
     xpDelta += bonusResult.bonus;
     if (bonusResult.family.pet.level > fam.pet.level) leveledUp = true;
+    await logXp(bonusResult.bonus, "All daily tasks done (bonus)", bonusResult.family.pet.spendableXp);
   }
 
   const resp: CompleteResponse = { state, xpDelta, leveledUp, unlocked };
@@ -532,18 +606,29 @@ app.post("/adhoc", async (c) => {
 
 app.post("/templates", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Partial<CreateTemplateRequest>;
-  const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
   const cadence = body.cadence === "weekly" ? "weekly" : "daily";
-  const weeklyTrack = cadence === "weekly" && body.weeklyTrack === "cumulative" ? "cumulative" as const : undefined;
+  const repeatable = body.repeatable === true;
+  // A cumulative track is inherently repeatable; a non-repeatable weekly is a
+  // single once-per-week check (target forced to 1, sessions track).
+  const weeklyTrack =
+    cadence === "weekly" && repeatable && body.weeklyTrack === "cumulative"
+      ? ("cumulative" as const)
+      : undefined;
   const maxTarget = weeklyTrack === "cumulative" ? 99999 : 7;
+  const weeklyTarget =
+    cadence === "weekly"
+      ? repeatable
+        ? Math.max(1, Math.min(maxTarget, body.weeklyTarget ?? 1))
+        : 1
+      : 1;
   const t: TaskTemplate = {
     id: newId(),
     title: requireString(body.title, "title"),
     emoji: body.emoji || (cadence === "weekly" ? "📅" : "✅"),
     cadence,
-    weeklyTarget: cadence === "weekly" ? Math.max(1, Math.min(maxTarget, body.weeklyTarget ?? 1)) : 1,
+    weeklyTarget,
     weeklyTrack,
+    repeatable,
     createdAt: new Date().toISOString(),
   };
   await putTemplate(t);
@@ -553,26 +638,25 @@ app.post("/templates", async (c) => {
 app.patch("/templates/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as Partial<UpdateTemplateRequest>;
-  const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
   const templates = await listTemplates();
   const existing = templates.find((t) => t.id === id);
   if (!existing) throw new HttpError(404, "Template not found");
+  const cadence = body.cadence ?? existing.cadence;
+  const repeatable = body.repeatable ?? existing.repeatable;
+  const isCumulative =
+    cadence === "weekly" &&
+    repeatable &&
+    (body.weeklyTrack ?? existing.weeklyTrack) === "cumulative";
   const updated: TaskTemplate = {
     ...existing,
     title: body.title?.trim() || existing.title,
     emoji: body.emoji || existing.emoji,
-    cadence: body.cadence ?? existing.cadence,
-    weeklyTrack:
-      (body.cadence ?? existing.cadence) === "weekly"
-        ? (body.weeklyTrack ?? existing.weeklyTrack) === "cumulative" ? "cumulative" : undefined
-        : undefined,
+    cadence,
+    repeatable,
+    weeklyTrack: isCumulative ? "cumulative" : undefined,
     weeklyTarget:
-      body.cadence === "weekly" || (body.cadence === undefined && existing.cadence === "weekly")
-        ? Math.max(1, Math.min(
-            ((body.weeklyTrack ?? existing.weeklyTrack) === "cumulative" ? 99999 : 7),
-            body.weeklyTarget ?? existing.weeklyTarget,
-          ))
+      cadence === "weekly" && repeatable
+        ? Math.max(1, Math.min(isCumulative ? 99999 : 7, body.weeklyTarget ?? existing.weeklyTarget))
         : 1,
   };
   await putTemplate(updated);
@@ -581,9 +665,6 @@ app.patch("/templates/:id", async (c) => {
 
 app.delete("/templates/:id", async (c) => {
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as Partial<DeleteTemplateRequest>;
-  const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
   await deleteTemplate(id);
   return c.json({ ok: true });
 });
@@ -592,8 +673,6 @@ app.delete("/templates/:id", async (c) => {
 
 app.post("/rewards", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Partial<CreateRewardRequest>;
-  const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
   const cost = Math.max(1, Math.min(10000, Number(body.cost) || 50));
   const r: Reward = {
     id: newId(),
@@ -608,9 +687,6 @@ app.post("/rewards", async (c) => {
 
 app.delete("/rewards/:id", async (c) => {
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as Partial<DeleteRewardRequest>;
-  const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
   await deleteReward(id);
   return c.json({ ok: true });
 });
@@ -625,11 +701,12 @@ app.post("/claims", async (c) => {
   const fam = toFamilyMeta(rawFam);
   const reward = await getReward(rewardId);
   if (!reward) throw new HttpError(404, "Reward not found");
-  if (fam.pet.xp < reward.cost) {
-    throw new HttpError(400, `Not enough XP. Need ${reward.cost}, have ${fam.pet.xp}.`);
+  if (fam.pet.spendableXp < reward.cost) {
+    throw new HttpError(400, `Not enough XP. Need ${reward.cost}, have ${fam.pet.spendableXp}.`);
   }
-  const newPet = reverseXp(fam.pet, reward.cost);
+  const newPet = spendXp(fam.pet, reward.cost);
   await updateFamily({ pet: newPet });
+  await logXp(-reward.cost, `Reward claimed: ${reward.title}`, newPet.spendableXp);
   const claim: RewardClaim = {
     id: newId(),
     rewardId: reward.id,
@@ -648,8 +725,6 @@ app.post("/claims", async (c) => {
 app.post("/claims/:id/resolve", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as Partial<ResolveClaimRequest>;
-  const pin = requireString(body.pin, "pin");
-  if (!(await checkPin(pin))) throw new HttpError(403, "Wrong PIN");
 
   const claims = await listClaims();
   const claim = claims.find((cl) => cl.id === id);
@@ -666,8 +741,9 @@ app.post("/claims/:id/resolve", async (c) => {
     const rawFam = await getFamily();
     if (rawFam) {
       const fam = toFamilyMeta(rawFam);
-      const r = awardXp(fam.pet, claim.cost);
-      await updateFamily({ pet: r.pet });
+      const newPet = refundXp(fam.pet, claim.cost);
+      await updateFamily({ pet: newPet });
+      await logXp(claim.cost, `Refund (denied): ${claim.rewardTitle}`, newPet.spendableXp);
     }
   }
   return c.json({ ok: true });
@@ -713,11 +789,12 @@ app.post("/streak-shield/buy", async (c) => {
   if (shields >= STREAK_SHIELD.max) {
     throw new HttpError(400, `You can only hold ${STREAK_SHIELD.max} shields`);
   }
-  if (fam.pet.xp < STREAK_SHIELD.cost) {
-    throw new HttpError(400, `Not enough XP. Need ${STREAK_SHIELD.cost}, have ${fam.pet.xp}.`);
+  if (fam.pet.spendableXp < STREAK_SHIELD.cost) {
+    throw new HttpError(400, `Not enough XP. Need ${STREAK_SHIELD.cost}, have ${fam.pet.spendableXp}.`);
   }
-  const pet = reverseXp(fam.pet, STREAK_SHIELD.cost);
+  const pet = spendXp(fam.pet, STREAK_SHIELD.cost);
   await updateFamily({ pet, streakShields: shields + 1 });
+  await logXp(-STREAK_SHIELD.cost, "Bought streak shield", pet.spendableXp);
   const resp: BuyShieldResponse = {
     family: { ...fam, pet, streakShields: shields + 1 },
   };

@@ -16,6 +16,7 @@ import { Popcorn, type PopcornHandle } from "../components/Popcorn";
 import { TaskRow } from "../components/TaskRow";
 import { WeeklyRow } from "../components/WeeklyRow";
 import { CumulativeWeeklyRow } from "../components/CumulativeWeeklyRow";
+import { RepeatableDailyRow } from "../components/RepeatableDailyRow";
 import { AddQuestSheet } from "../components/AddQuestSheet";
 import { CelebrateToast } from "../components/CelebrateToast";
 import { FullDayCelebration } from "../components/FullDayCelebration";
@@ -203,7 +204,7 @@ export function Home() {
 
   const state = stateQuery.data;
   const mood = state ? moodFromProgress(state.todayProgress) : "neutral";
-  const xpBalance = state?.family.pet.xp ?? 0;
+  const xpBalance = state?.family.pet.spendableXp ?? 0;
   const questIdea = questIdeaForToday(date);
 
   // Rough XP a normal full day earns — used by the shop to say "≈ N days".
@@ -266,15 +267,26 @@ export function Home() {
           {state && state.daily.length > 0 && (
             <Section title="Today">
               <div className="space-y-2">
-                {state.daily.map((d) => (
-                  <TaskRow
-                    key={d.template.id}
-                    emoji={d.template.emoji}
-                    title={d.template.title}
-                    done={d.completedToday}
-                    onToggle={() => completeMut.mutate({ templateId: d.template.id })}
-                  />
-                ))}
+                {state.daily.map((d) =>
+                  d.template.repeatable ? (
+                    <RepeatableDailyRow
+                      key={d.template.id}
+                      emoji={d.template.emoji}
+                      title={d.template.title}
+                      count={d.amountToday ?? 0}
+                      onAdd={() => completeMut.mutate({ templateId: d.template.id, delta: 1 })}
+                      onRemove={() => completeMut.mutate({ templateId: d.template.id, delta: -1 })}
+                    />
+                  ) : (
+                    <TaskRow
+                      key={d.template.id}
+                      emoji={d.template.emoji}
+                      title={d.template.title}
+                      done={d.completedToday}
+                      onToggle={() => completeMut.mutate({ templateId: d.template.id })}
+                    />
+                  ),
+                )}
               </div>
             </Section>
           )}
@@ -294,7 +306,7 @@ export function Home() {
                       amountToday={w.amountToday ?? 0}
                       onSetAmount={(amount) => completeMut.mutate({ templateId: w.template.id, amount })}
                     />
-                  ) : (
+                  ) : w.template.repeatable ? (
                     <WeeklyRow
                       key={w.template.id}
                       emoji={w.template.emoji}
@@ -304,6 +316,15 @@ export function Home() {
                       done={w.completedToday}
                       onAdd={() => completeMut.mutate({ templateId: w.template.id, delta: 1 })}
                       onRemove={() => completeMut.mutate({ templateId: w.template.id, delta: -1 })}
+                    />
+                  ) : (
+                    <TaskRow
+                      key={w.template.id}
+                      emoji={w.template.emoji}
+                      title={w.template.title}
+                      done={w.doneThisWeek >= 1}
+                      subtitle="Once this week"
+                      onToggle={() => completeMut.mutate({ templateId: w.template.id })}
                     />
                   ),
                 )}

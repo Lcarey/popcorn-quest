@@ -8,6 +8,7 @@
 //   SK = TEMPLATE#<templateId>             -> recurring task template
 //   SK = COMPLETION#<yyyy-mm-dd>#<tplId>   -> single completion tick
 //   SK = ADHOC#<yyyy-mm-dd>#<adhocId>      -> ad-hoc task (TTL = next-day midnight)
+//   SK = XPLOG#<iso-at>#<id>               -> XP audit log entry
 //
 // Items also carry their domain fields directly. We rely on a single
 // "begins_with" query per family on a date prefix to fetch a day's data.
@@ -31,6 +32,7 @@ import type {
   Reward,
   RewardClaim,
   TaskTemplate,
+  XpLogEntry,
 } from "@popcorn/shared";
 
 const region = process.env.AWS_REGION || "us-east-1";
@@ -55,7 +57,7 @@ export const ddb = DynamoDBDocumentClient.from(raw, {
 // ---------- key helpers --------------------------------------------------
 
 const FAMILY_ID = "SINGLETON";
-const pk = () => `FAMILY#${FAMILY_ID}`;
+const pk = (familyId: string = FAMILY_ID) => `FAMILY#${familyId}`;
 const skMeta = () => "META";
 const skTemplate = (id: string) => `TEMPLATE#${id}`;
 const skCompletion = (date: string, templateId: string) =>
@@ -63,6 +65,7 @@ const skCompletion = (date: string, templateId: string) =>
 const skAdhoc = (date: string, id: string) => `ADHOC#${date}#${id}`;
 const skReward = (id: string) => `REWARD#${id}`;
 const skClaim = (claimedAt: string, id: string) => `CLAIM#${claimedAt}#${id}`;
+const skXpLog = (at: string, id: string) => `XPLOG#${at}#${id}`;
 
 // ---------- family meta --------------------------------------------------
 
@@ -375,6 +378,42 @@ export async function putClaim(c: RewardClaim): Promise<void> {
     type: "CLAIM",
   };
   await ddb.send(new PutCommand({ TableName: TABLE, Item: rec }));
+}
+
+// ---------- XP audit log -------------------------------------------------
+
+interface XpLogRecord extends XpLogEntry {
+  PK: string;
+  SK: string;
+  type: "XPLOG";
+}
+
+export async function putXpLog(entry: XpLogEntry): Promise<void> {
+  const rec: XpLogRecord = {
+    ...entry,
+    PK: pk(),
+    SK: skXpLog(entry.at, entry.id),
+    type: "XPLOG",
+  };
+  await ddb.send(new PutCommand({ TableName: TABLE, Item: rec }));
+}
+
+// Most-recent-first list of XP log entries (SK is chronological, so we scan
+// the index backwards and cap at `limit`).
+export async function listXpLog(limit = 200): Promise<XpLogEntry[]> {
+  const out = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+      ExpressionAttributeValues: {
+        ":pk": pk(),
+        ":prefix": "XPLOG#",
+      },
+      ScanIndexForward: false,
+      Limit: limit,
+    }),
+  );
+  return (out.Items as XpLogRecord[] | undefined)?.map(stripKeys) ?? [];
 }
 
 // ---------- helpers ------------------------------------------------------
