@@ -194,6 +194,7 @@ export function buildHistory(
   templates: TaskTemplate[],
   completionsByDate: Map<string, Completion[]>,
   days: string[],
+  xpEarnedByDate?: Map<string, number>,
 ): DailyHistoryEntry[] {
   // Daily required = number of daily templates.
   const dailyTemplates = templates.filter((t) => t.cadence === "daily");
@@ -207,6 +208,7 @@ export function buildHistory(
       required,
       completed,
       ratio: required === 0 ? 0 : completed / required,
+      xpEarned: xpEarnedByDate?.get(date) ?? 0,
     };
   });
 }
