@@ -5,6 +5,7 @@ export function RewardShop({
   rewards,
   pendingClaims,
   xpBalance,
+  totalXp,
   estDailyXp,
   shields,
   onClaim,
@@ -13,6 +14,8 @@ export function RewardShop({
   rewards: Reward[];
   pendingClaims: RewardClaim[];
   xpBalance: number;
+  /** Lifetime XP earned (drives level); shown alongside the spendable wallet. */
+  totalXp: number;
   /** Rough XP a normal full day earns; used to translate cost into days. */
   estDailyXp: number;
   shields: number;
@@ -21,10 +24,15 @@ export function RewardShop({
 }) {
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between mb-1 px-1">
+      <div className="flex items-center justify-between gap-2 mb-1 px-1 flex-wrap">
         <h2 className="font-display font-semibold text-lg text-cocoa">Reward Shop 🛍️</h2>
-        <div className="chip bg-butter">
-          ⭐ <span>{xpBalance} XP to spend</span>
+        <div className="flex items-center gap-2">
+          <div className="chip bg-white">
+            🏆 <span>{totalXp} total XP</span>
+          </div>
+          <div className="chip bg-butter">
+            ⭐ <span>{xpBalance} to spend</span>
+          </div>
         </div>
       </div>
 
