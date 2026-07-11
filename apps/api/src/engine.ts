@@ -35,6 +35,7 @@ export interface AwardResult {
   unlocked?: string; // cosmetic ID newly unlocked at this level-up
 }
 
+// Earn XP: raises both lifetime `xp` (level source) and the spendable wallet.
 export function awardXp(pet: PetState, xpDelta: number): AwardResult {
   if (xpDelta <= 0) {
     return { pet, xpDelta: 0, leveledUp: false };
@@ -63,6 +64,7 @@ export function awardXp(pet: PetState, xpDelta: number): AwardResult {
     pet: {
       ...pet,
       xp: newXp,
+      spendableXp: pet.spendableXp + xpDelta,
       level: newLevel,
       unlocked: newUnlocks,
     },
@@ -72,12 +74,33 @@ export function awardXp(pet: PetState, xpDelta: number): AwardResult {
   };
 }
 
-export function reverseXp(pet: PetState, xpDelta: number): PetState {
+// Undo an earn (e.g. unchecking a task): lowers both counters and recomputes
+// level from lifetime `xp`. Both clamp at zero.
+export function reverseEarn(pet: PetState, xpDelta: number): PetState {
   const newXp = Math.max(0, pet.xp - xpDelta);
   return {
     ...pet,
     xp: newXp,
+    spendableXp: Math.max(0, pet.spendableXp - xpDelta),
     level: levelFromXp(newXp).level,
+  };
+}
+
+// Spend from the wallet (reward claim, streak shield). Lifetime `xp` and level
+// are untouched, so spending never de-levels the pet.
+export function spendXp(pet: PetState, cost: number): PetState {
+  return {
+    ...pet,
+    spendableXp: Math.max(0, pet.spendableXp - cost),
+  };
+}
+
+// Refund to the wallet (parent denies a claim). Does not touch lifetime `xp`,
+// level, or cosmetics.
+export function refundXp(pet: PetState, cost: number): PetState {
+  return {
+    ...pet,
+    spendableXp: pet.spendableXp + cost,
   };
 }
 
@@ -108,9 +131,15 @@ export function buildTodayState(
 
   for (const t of templates) {
     if (t.cadence === "daily") {
+      // Repeatable daily tasks can be logged multiple times/day; surface the
+      // count so the +/- row can show it. Legacy check rows default to 1.
+      const todayCompletion = (weeklyDoneByTemplate.get(t.id) ?? []).find(
+        (c) => c.date === date,
+      );
       daily.push({
         template: t,
         completedToday: todaysCompletions.has(t.id),
+        amountToday: todayCompletion ? (todayCompletion.amount ?? 1) : 0,
       });
     } else {
       const completions = weeklyDoneByTemplate.get(t.id) ?? [];

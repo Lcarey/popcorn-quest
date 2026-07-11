@@ -15,6 +15,10 @@ export interface TaskTemplate {
   // sessions = times per week (1–7); cumulative = total units (e.g. 500). Daily = 1.
   weeklyTarget: number;
   weeklyTrack?: WeeklyTrack;
+  // When true the task can be logged multiple times (shows +/- and earns XP per
+  // rep). When false it's a single check. Daily-repeatable requires one per day
+  // (e.g. "1 page of Beast Academy") but extra reps still earn XP.
+  repeatable: boolean;
   createdAt: string; // ISO
 }
 
@@ -40,7 +44,13 @@ export interface Completion {
 
 export interface PetState {
   name: string;
+  // Lifetime XP earned. Drives level and cosmetic unlocks; only spending-neutral
+  // (earns raise it, undos lower it) — buying rewards never touches it.
   xp: number;
+  // Wallet balance available to spend on rewards / streak shields. Earns raise
+  // it, undos lower it, purchases spend it, denied claims refund it. Never
+  // affects level.
+  spendableXp: number;
   level: number;
   // Cosmetic IDs the kid has unlocked (collar, hat, scene, etc.)
   unlocked: string[];
@@ -94,14 +104,14 @@ export interface RewardClaim {
 }
 
 export interface CreateRewardRequest {
-  pin: string;
+  pin?: string;
   title: string;
   emoji: string;
   cost: number;
 }
 
 export interface DeleteRewardRequest {
-  pin: string;
+  pin?: string;
 }
 
 export interface ClaimRewardRequest {
@@ -109,7 +119,7 @@ export interface ClaimRewardRequest {
 }
 
 export interface ResolveClaimRequest {
-  pin: string;
+  pin?: string;
   approve: boolean;
 }
 
@@ -135,6 +145,8 @@ export interface BuyShieldResponse {
 export interface DailyTaskView {
   template: TaskTemplate;
   completedToday: boolean;
+  /** Repeatable daily only: number of times logged today (>= 1 when done). */
+  amountToday?: number;
 }
 
 export interface WeeklyTaskView {
@@ -213,25 +225,27 @@ export interface AdhocRequest {
 }
 
 export interface CreateTemplateRequest {
-  pin: string;
+  pin?: string;
   title: string;
   emoji: string;
   cadence: Cadence;
   weeklyTarget?: number;
   weeklyTrack?: WeeklyTrack;
+  repeatable?: boolean;
 }
 
 export interface UpdateTemplateRequest {
-  pin: string;
+  pin?: string;
   title?: string;
   emoji?: string;
   cadence?: Cadence;
   weeklyTarget?: number;
   weeklyTrack?: WeeklyTrack;
+  repeatable?: boolean;
 }
 
 export interface DeleteTemplateRequest {
-  pin: string;
+  pin?: string;
 }
 
 // =============================================================================
@@ -269,6 +283,23 @@ export interface CalendarEventsResponse {
   events: CalendarEvent[];
   /** Present when one or more feeds failed but others may have succeeded. */
   errors?: string[];
+}
+
+// =============================================================================
+// XP audit log
+// =============================================================================
+
+/** A single XP change, recorded so a parent can audit how XP was earned/spent. */
+export interface XpLogEntry {
+  id: string;
+  at: string; // ISO timestamp
+  amount: number; // signed: +earned, -spent/undone
+  reason: string; // e.g. "Completed: Beast Academy page"
+  balance?: number; // pet.xp after this change
+}
+
+export interface XpLogResponse {
+  entries: XpLogEntry[];
 }
 
 // =============================================================================

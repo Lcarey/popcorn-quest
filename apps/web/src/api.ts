@@ -26,6 +26,7 @@ import type {
   UpdateTemplateRequest,
   WeatherToday,
   CalendarEventsResponse,
+  XpLogResponse,
 } from "@popcorn/shared";
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) || "/api";
@@ -59,6 +60,7 @@ export const api = {
   },
   weather: () => req<WeatherToday>("/weather"),
   calendarEvents: () => req<CalendarEventsResponse>("/calendar-events"),
+  xpLog: (limit = 200) => req<XpLogResponse>(`/xp-log?limit=${limit}`),
   complete: (body: CompleteRequest) =>
     req<CompleteResponse>("/complete", { method: "POST", body: JSON.stringify(body) }),
   adhoc: (body: AdhocRequest) =>

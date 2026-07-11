@@ -24,7 +24,7 @@ export function RewardShop({
       <div className="flex items-center justify-between mb-1 px-1">
         <h2 className="font-display font-semibold text-lg text-cocoa">Reward Shop 🛍️</h2>
         <div className="chip bg-butter">
-          ⭐ <span>{xpBalance} XP</span>
+          ⭐ <span>{xpBalance} XP to spend</span>
         </div>
       </div>
 

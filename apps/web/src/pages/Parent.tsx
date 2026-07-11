@@ -1,70 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import type { Cadence, Reward, RewardClaim, TaskTemplate, WeeklyTrack } from "@popcorn/shared";
+import { Link } from "react-router-dom";
+import type { Cadence, Reward, RewardClaim, TaskTemplate, WeeklyTrack, XpLogEntry } from "@popcorn/shared";
 import { todayKey } from "@popcorn/shared";
 import { api } from "../api";
-import { useApp } from "../store";
 import { COSMETICS } from "@popcorn/shared";
 
 export function Parent() {
-  const { parentPin } = useApp();
-  const nav = useNavigate();
-  if (!parentPin) return <PinGate />;
   return <ParentPanel />;
 }
 
-function PinGate() {
-  const { setParentPin } = useApp();
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-display font-bold">Parent zone</h1>
-        <Link to="/" className="btn-ghost text-sm py-2 px-3">
-          Back
-        </Link>
-      </div>
-      <div className="card space-y-3">
-        <p className="text-cocoa/80">Enter the parent PIN to manage daily, weekly, and recurring items.</p>
-        <input
-          type="password"
-          inputMode="numeric"
-          autoFocus
-          value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-          placeholder="••••"
-          className="w-full px-4 py-3 rounded-2xl bg-white border-2 border-white shadow-inner text-center font-display text-3xl tracking-widest focus:outline-none focus:border-coral"
-        />
-        {error && <div className="text-coral font-semibold text-sm">{error}</div>}
-        <button
-          className="btn-primary w-full"
-          disabled={pin.length < 4 || submitting}
-          onClick={async () => {
-            setSubmitting(true);
-            setError(null);
-            try {
-              await api.verifyPin(pin);
-              setParentPin(pin);
-            } catch (e) {
-              setError("That PIN didn't work. Try again.");
-            } finally {
-              setSubmitting(false);
-            }
-          }}
-        >
-          Unlock
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function ParentPanel() {
-  const { parentPin, setParentPin } = useApp();
   const qc = useQueryClient();
   const date = todayKey();
   const stateQuery = useQuery({
@@ -75,8 +21,14 @@ function ParentPanel() {
   const [showCreate, setShowCreate] = useState(false);
 
   const createMut = useMutation({
-    mutationFn: (vars: { title: string; emoji: string; cadence: Cadence; weeklyTarget: number; weeklyTrack?: WeeklyTrack }) =>
-      api.createTemplate({ pin: parentPin!, ...vars }),
+    mutationFn: (vars: {
+      title: string;
+      emoji: string;
+      cadence: Cadence;
+      weeklyTarget: number;
+      weeklyTrack?: WeeklyTrack;
+      repeatable: boolean;
+    }) => api.createTemplate(vars),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["state", date] });
       setShowCreate(false);
@@ -84,14 +36,24 @@ function ParentPanel() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) =>
-      api.deleteTemplate(id, { pin: parentPin! }),
+    mutationFn: (id: string) => api.deleteTemplate(id, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["state", date] }),
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, title, emoji, weeklyTarget }: { id: string; title?: string; emoji?: string; weeklyTarget?: number }) =>
-      api.updateTemplate(id, { pin: parentPin!, title, emoji, weeklyTarget }),
+    mutationFn: ({
+      id,
+      title,
+      emoji,
+      weeklyTarget,
+      repeatable,
+    }: {
+      id: string;
+      title?: string;
+      emoji?: string;
+      weeklyTarget?: number;
+      repeatable?: boolean;
+    }) => api.updateTemplate(id, { title, emoji, weeklyTarget, repeatable }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["state", date] }),
   });
 
@@ -106,14 +68,9 @@ function ParentPanel() {
     <div className="space-y-4 pb-20">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-display font-bold">Parent zone</h1>
-        <div className="flex gap-2">
-          <button onClick={() => setParentPin(null)} className="btn-ghost text-sm py-2 px-3">
-            Lock
-          </button>
-          <Link to="/" className="btn-ghost text-sm py-2 px-3">
-            Back
-          </Link>
-        </div>
+        <Link to="/" className="btn-ghost text-sm py-2 px-3">
+          Back
+        </Link>
       </div>
 
       <button onClick={() => setShowCreate(true)} className="btn-primary w-full">
@@ -165,7 +122,6 @@ function ParentPanel() {
         <RewardsManager
           rewards={stateQuery.data.rewards}
           pendingClaims={stateQuery.data.pendingClaims}
-          pin={parentPin!}
           onChange={() => qc.invalidateQueries({ queryKey: ["state", date] })}
         />
       )}
@@ -176,6 +132,8 @@ function ParentPanel() {
           unlocked={stateQuery.data.family.pet.unlocked}
         />
       )}
+
+      <XpLogTable />
     </div>
   );
 }
@@ -185,15 +143,29 @@ function CreateTemplateForm({
   onSubmit,
 }: {
   onCancel: () => void;
-  onSubmit: (v: { title: string; emoji: string; cadence: Cadence; weeklyTarget: number; weeklyTrack?: WeeklyTrack }) => void;
+  onSubmit: (v: {
+    title: string;
+    emoji: string;
+    cadence: Cadence;
+    weeklyTarget: number;
+    weeklyTrack?: WeeklyTrack;
+    repeatable: boolean;
+  }) => void;
 }) {
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("✅");
   const [cadence, setCadence] = useState<Cadence>("daily");
   const [weeklyTrack, setWeeklyTrack] = useState<WeeklyTrack>("sessions");
   const [target, setTarget] = useState(3);
-  const isCumulative = cadence === "weekly" && weeklyTrack === "cumulative";
+  // Default: daily chores are usually one-and-done; weekly chores usually repeat.
+  const [repeatable, setRepeatable] = useState(false);
+  const isCumulative = cadence === "weekly" && repeatable && weeklyTrack === "cumulative";
   const maxTarget = isCumulative ? 99999 : 7;
+
+  function pickCadence(next: Cadence) {
+    setCadence(next);
+    setRepeatable(next === "weekly");
+  }
 
   return (
     <div className="card space-y-3">
@@ -213,7 +185,7 @@ function CreateTemplateForm({
         />
         <div className="flex flex-1 bg-white rounded-2xl p-1">
           <button
-            onClick={() => setCadence("daily")}
+            onClick={() => pickCadence("daily")}
             className={[
               "flex-1 py-2 rounded-xl font-display font-semibold",
               cadence === "daily" ? "bg-coral text-white" : "text-cocoa",
@@ -222,7 +194,7 @@ function CreateTemplateForm({
             Daily
           </button>
           <button
-            onClick={() => setCadence("weekly")}
+            onClick={() => pickCadence("weekly")}
             className={[
               "flex-1 py-2 rounded-xl font-display font-semibold",
               cadence === "weekly" ? "bg-coral text-white" : "text-cocoa",
@@ -232,7 +204,10 @@ function CreateTemplateForm({
           </button>
         </div>
       </div>
-      {cadence === "weekly" && (
+
+      <RepeatableToggle cadence={cadence} repeatable={repeatable} onChange={setRepeatable} />
+
+      {cadence === "weekly" && repeatable && (
         <>
           <div className="flex bg-white rounded-2xl p-1">
             <button
@@ -284,14 +259,47 @@ function CreateTemplateForm({
               title: title.trim(),
               emoji: emoji || (cadence === "weekly" ? "📅" : "✅"),
               cadence,
-              weeklyTarget: cadence === "weekly" ? target : 1,
-              weeklyTrack: cadence === "weekly" ? weeklyTrack : undefined,
+              weeklyTarget: cadence === "weekly" && repeatable ? target : 1,
+              weeklyTrack: cadence === "weekly" && repeatable ? weeklyTrack : undefined,
+              repeatable,
             })
           }
         >
           Save
         </button>
       </div>
+    </div>
+  );
+}
+
+function RepeatableToggle({
+  cadence,
+  repeatable,
+  onChange,
+}: {
+  cadence: Cadence;
+  repeatable: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const hint = repeatable
+    ? cadence === "daily"
+      ? "1 required per day; extra reps earn bonus XP."
+      : "Shows +/- so it can be logged several times a week."
+    : cadence === "daily"
+      ? "A single daily check."
+      : "A single check, once per week.";
+  return (
+    <div className="bg-white rounded-2xl p-3 space-y-2">
+      <label className="flex items-center justify-between gap-3 cursor-pointer">
+        <span className="font-display font-semibold text-cocoa text-sm">Can be done multiple times?</span>
+        <input
+          type="checkbox"
+          checked={repeatable}
+          onChange={(e) => onChange(e.target.checked)}
+          className="w-6 h-6 accent-coral"
+        />
+      </label>
+      <p className="text-xs text-cocoa/60">{hint}</p>
     </div>
   );
 }
@@ -303,14 +311,21 @@ function TemplateCard({
 }: {
   template: TaskTemplate;
   onDelete: () => void;
-  onUpdate: (u: { title?: string; emoji?: string; weeklyTarget?: number }) => void;
+  onUpdate: (u: { title?: string; emoji?: string; weeklyTarget?: number; repeatable?: boolean }) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(template.title);
   const [emoji, setEmoji] = useState(template.emoji);
   const [target, setTarget] = useState(template.weeklyTarget);
+  const [repeatable, setRepeatable] = useState(template.repeatable);
   const isCumulative = template.weeklyTrack === "cumulative";
   const maxTarget = isCumulative ? 99999 : 7;
+
+  const meta = (() => {
+    if (template.cadence === "daily") return template.repeatable ? "Daily · repeatable" : "Daily";
+    if (!template.repeatable) return "Weekly · once";
+    return isCumulative ? `Weekly goal · ${template.weeklyTarget}` : `Weekly · ${template.weeklyTarget}x`;
+  })();
 
   return (
     <div className="card flex items-start gap-3">
@@ -329,7 +344,7 @@ function TemplateCard({
                 onChange={(e) => setEmoji(e.target.value.slice(0, 4))}
                 className="w-16 text-center px-2 py-2 rounded-xl bg-white border-2 border-white shadow-inner text-xl"
               />
-              {template.cadence === "weekly" && (
+              {template.cadence === "weekly" && repeatable && (
                 <input
                   type="number"
                   min={1}
@@ -339,31 +354,35 @@ function TemplateCard({
                   className="w-20 px-2 py-2 rounded-xl bg-white border-2 border-white shadow-inner text-center"
                 />
               )}
-              <button
-                className="btn-secondary flex-1 py-2"
-                onClick={() => {
-                  onUpdate({
-                    title: title.trim() || template.title,
-                    emoji: emoji || template.emoji,
-                    weeklyTarget: template.cadence === "weekly" ? target : undefined,
-                  });
-                  setEditing(false);
-                }}
-              >
-                Save
-              </button>
             </div>
+            <label className="flex items-center justify-between gap-3 cursor-pointer bg-white rounded-xl px-3 py-2">
+              <span className="text-sm font-semibold text-cocoa">Can be done multiple times?</span>
+              <input
+                type="checkbox"
+                checked={repeatable}
+                onChange={(e) => setRepeatable(e.target.checked)}
+                className="w-5 h-5 accent-coral"
+              />
+            </label>
+            <button
+              className="btn-secondary w-full py-2"
+              onClick={() => {
+                onUpdate({
+                  title: title.trim() || template.title,
+                  emoji: emoji || template.emoji,
+                  weeklyTarget: template.cadence === "weekly" && repeatable ? target : undefined,
+                  repeatable,
+                });
+                setEditing(false);
+              }}
+            >
+              Save
+            </button>
           </div>
         ) : (
           <>
             <div className="font-display font-semibold">{template.title}</div>
-            <div className="text-xs text-cocoa/70">
-              {template.cadence === "daily"
-                ? "Daily"
-                : isCumulative
-                  ? `Weekly goal · ${template.weeklyTarget}`
-                  : `Weekly · ${template.weeklyTarget}x`}
-            </div>
+            <div className="text-xs text-cocoa/70">{meta}</div>
           </>
         )}
       </div>
@@ -402,19 +421,17 @@ function Empty({ children }: { children: React.ReactNode }) {
 function RewardsManager({
   rewards,
   pendingClaims,
-  pin,
   onChange,
 }: {
   rewards: Reward[];
   pendingClaims: RewardClaim[];
-  pin: string;
   onChange: () => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
 
   const createMut = useMutation({
     mutationFn: (vars: { title: string; emoji: string; cost: number }) =>
-      api.createReward({ pin, ...vars }),
+      api.createReward(vars),
     onSuccess: () => {
       onChange();
       setShowCreate(false);
@@ -422,13 +439,13 @@ function RewardsManager({
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => api.deleteReward(id, { pin }),
+    mutationFn: (id: string) => api.deleteReward(id, {}),
     onSuccess: onChange,
   });
 
   const resolveMut = useMutation({
     mutationFn: (vars: { id: string; approve: boolean }) =>
-      api.resolveClaim(vars.id, { pin, approve: vars.approve }),
+      api.resolveClaim(vars.id, { approve: vars.approve }),
     onSuccess: onChange,
   });
 
@@ -581,6 +598,63 @@ function CosmeticsPanel({ level, unlocked }: { level: number; unlocked: string[]
           );
         })}
       </div>
+    </Section>
+  );
+}
+
+function XpLogTable() {
+  const logQuery = useQuery({
+    queryKey: ["xp-log"],
+    queryFn: () => api.xpLog(200),
+  });
+  const entries: XpLogEntry[] = logQuery.data?.entries ?? [];
+
+  return (
+    <Section title="XP log">
+      {logQuery.isLoading ? (
+        <Empty>Loading…</Empty>
+      ) : entries.length === 0 ? (
+        <Empty>No XP earned yet.</Empty>
+      ) : (
+        <div className="card p-0 overflow-hidden">
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-cream/95 backdrop-blur">
+                <tr className="text-left text-cocoa/60">
+                  <th className="px-3 py-2 font-semibold">Date</th>
+                  <th className="px-3 py-2 font-semibold">Time</th>
+                  <th className="px-3 py-2 font-semibold text-right">XP</th>
+                  <th className="px-3 py-2 font-semibold">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => {
+                  const d = new Date(e.at);
+                  return (
+                    <tr key={e.id} className="border-t border-cocoa/10 align-top">
+                      <td className="px-3 py-2 whitespace-nowrap text-cocoa/80">
+                        {d.toLocaleDateString()}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-cocoa/80">
+                        {d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}
+                      </td>
+                      <td
+                        className={[
+                          "px-3 py-2 whitespace-nowrap text-right font-display font-bold",
+                          e.amount >= 0 ? "text-green-600" : "text-coral",
+                        ].join(" ")}
+                      >
+                        {e.amount >= 0 ? `+${e.amount}` : e.amount}
+                      </td>
+                      <td className="px-3 py-2 text-cocoa">{e.reason}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </Section>
   );
 }
