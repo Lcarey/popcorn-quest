@@ -416,6 +416,25 @@ export async function listXpLog(limit = 200): Promise<XpLogEntry[]> {
   return (out.Items as XpLogRecord[] | undefined)?.map(stripKeys) ?? [];
 }
 
+// All XP log entries at/after `sinceIso` (SK is `XPLOG#<iso-at>#<id>`, so a
+// timestamp lower bound works lexicographically). Used to bucket XP per day
+// for the history heatmap.
+export async function listXpLogSince(sinceIso: string, limit = 3000): Promise<XpLogEntry[]> {
+  const out = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: "PK = :pk AND SK BETWEEN :s AND :e",
+      ExpressionAttributeValues: {
+        ":pk": pk(),
+        ":s": `XPLOG#${sinceIso}`,
+        ":e": "XPLOG#\uffff",
+      },
+      Limit: limit,
+    }),
+  );
+  return (out.Items as XpLogRecord[] | undefined)?.map(stripKeys) ?? [];
+}
+
 // ---------- helpers ------------------------------------------------------
 
 function stripKeys<T extends { PK?: string; SK?: string; type?: string }>(rec: T): Omit<T, "PK" | "SK" | "type"> {

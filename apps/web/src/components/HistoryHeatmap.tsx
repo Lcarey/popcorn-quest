@@ -22,6 +22,7 @@ function Cell({ entry }: { entry: DailyHistoryEntry }) {
     weekday: "short",
   })[0];
   const ratio = entry.required > 0 ? entry.ratio : 0;
+  const xp = entry.xpEarned ?? 0;
   let bg = "bg-white/60";
   let label = `${entry.completed}/${entry.required}`;
   if (entry.required === 0) {
@@ -36,10 +37,10 @@ function Cell({ entry }: { entry: DailyHistoryEntry }) {
   return (
     <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
       <div
-        title={`${entry.date} • ${label}`}
-        className={`w-full aspect-square rounded-lg border-2 border-white shadow-chunky-sm ${bg} flex items-center justify-center text-[10px] font-bold text-cocoa/70`}
+        title={`${entry.date} • ${label} • ${xp} XP`}
+        className={`w-full aspect-square rounded-lg border-2 border-white shadow-chunky-sm ${bg} flex items-center justify-center text-[11px] font-bold text-cocoa/70 leading-none`}
       >
-        {ratio >= 1 ? "★" : ""}
+        {xp > 0 ? xp : ""}
       </div>
       <div className="text-[10px] text-cocoa/60 font-semibold">{dayName}</div>
     </div>

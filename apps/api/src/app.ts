@@ -59,6 +59,7 @@ import {
   listRewards,
   listTemplates,
   listXpLog,
+  listXpLogSince,
   putAdhoc,
   putClaim,
   putCompletion,
@@ -116,7 +117,12 @@ function newId(): string {
 // Record an XP change so parents can audit how XP was earned/spent. `balance`
 // is the pet's XP after the change. Best-effort: never let logging failures
 // break the mutation that triggered them.
-async function logXp(amount: number, reason: string, balance?: number): Promise<void> {
+async function logXp(
+  amount: number,
+  reason: string,
+  balance?: number,
+  date: string = todayKey(),
+): Promise<void> {
   if (amount === 0) return;
   const entry: XpLogEntry = {
     id: newId(),
@@ -124,6 +130,7 @@ async function logXp(amount: number, reason: string, balance?: number): Promise<
     amount,
     reason,
     balance,
+    date,
   };
   try {
     await putXpLog(entry);
@@ -374,7 +381,20 @@ async function loadState(
       arr.push(c);
       byDate.set(c.date, arr);
     }
-    history = buildHistory(templates, byDate, days);
+
+    // XP earned per day, from the audit log. Fetch from a day before the window
+    // (log `at` is UTC; entries carry a local `date` we bucket by). Only count
+    // earns: positive amounts that aren't reward refunds.
+    const sinceIso = `${priorDate(days[0], 1)}T00:00:00.000Z`;
+    const logs = await listXpLogSince(sinceIso);
+    const xpByDate = new Map<string, number>();
+    for (const e of logs) {
+      if (e.amount <= 0 || e.reason.startsWith("Refund")) continue;
+      const d = e.date ?? e.at.slice(0, 10);
+      xpByDate.set(d, (xpByDate.get(d) ?? 0) + e.amount);
+    }
+
+    history = buildHistory(templates, byDate, days, xpByDate);
   }
 
   return buildTodayState(
@@ -422,13 +442,13 @@ app.post("/complete", async (c) => {
       xpDelta = r.xpDelta;
       leveledUp = r.leveledUp;
       unlocked = r.unlocked;
-      await logXp(r.xpDelta, `Side quest: ${adhoc.title}`, fam.pet.spendableXp);
+      await logXp(r.xpDelta, `Side quest: ${adhoc.title}`, fam.pet.spendableXp, date);
     } else {
       const newPet = reverseEarn(fam.pet, XP_PER.adhoc);
       await updateFamily({ pet: newPet });
       fam.pet = newPet;
       xpDelta = -XP_PER.adhoc;
-      await logXp(-XP_PER.adhoc, `Undid side quest: ${adhoc.title}`, fam.pet.spendableXp);
+      await logXp(-XP_PER.adhoc, `Undid side quest: ${adhoc.title}`, fam.pet.spendableXp, date);
     }
   } else if (body.templateId) {
     const templates = await listTemplates();
@@ -474,7 +494,7 @@ app.post("/complete", async (c) => {
           xpDelta = r.xpDelta;
           leveledUp = r.leveledUp;
           unlocked = r.unlocked;
-          await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp);
+          await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp, date);
         }
       } else if (existing) {
         await deleteCompletion(tpl.id, date);
@@ -482,7 +502,7 @@ app.post("/complete", async (c) => {
         await updateFamily({ pet: newPet });
         fam.pet = newPet;
         xpDelta = -xp;
-        await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp);
+        await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp, date);
       }
     } else if (tpl.repeatable) {
       // Repeatable +/- counter (daily "extra pages" and weekly "N times/week").
@@ -505,7 +525,7 @@ app.post("/complete", async (c) => {
         xpDelta = r.xpDelta;
         leveledUp = r.leveledUp;
         unlocked = r.unlocked;
-        await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp);
+        await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp, date);
       } else if (delta < 0) {
         let target = existing && (existing.amount ?? 1) > 0 ? existing : undefined;
         if (!target && tpl.cadence === "weekly") {
@@ -532,7 +552,7 @@ app.post("/complete", async (c) => {
           await updateFamily({ pet: newPet });
           fam.pet = newPet;
           xpDelta = -xp;
-          await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp);
+          await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp, date);
         }
       }
     } else {
@@ -543,7 +563,7 @@ app.post("/complete", async (c) => {
         await updateFamily({ pet: newPet });
         fam.pet = newPet;
         xpDelta = -xp;
-        await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp);
+        await logXp(-xp, `Undid: ${tpl.title}`, fam.pet.spendableXp, date);
       } else {
         await putCompletion({
           templateId: tpl.id,
@@ -556,7 +576,7 @@ app.post("/complete", async (c) => {
         xpDelta = r.xpDelta;
         leveledUp = r.leveledUp;
         unlocked = r.unlocked;
-        await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp);
+        await logXp(r.xpDelta, `Completed: ${tpl.title}`, fam.pet.spendableXp, date);
       }
     }
   } else {
@@ -576,7 +596,7 @@ app.post("/complete", async (c) => {
     state = await loadState(date, false);
     xpDelta += bonusResult.bonus;
     if (bonusResult.family.pet.level > fam.pet.level) leveledUp = true;
-    await logXp(bonusResult.bonus, "All daily tasks done (bonus)", bonusResult.family.pet.spendableXp);
+    await logXp(bonusResult.bonus, "All daily tasks done (bonus)", bonusResult.family.pet.spendableXp, date);
   }
 
   const resp: CompleteResponse = { state, xpDelta, leveledUp, unlocked };

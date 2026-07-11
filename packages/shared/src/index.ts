@@ -182,6 +182,9 @@ export interface DailyHistoryEntry {
   completed: number;
   // 0..1, simple completed/required ratio (rounded to 0 if no required tasks).
   ratio: number;
+  // Total XP earned that day (task completions, bonuses, side quests; excludes
+  // spends, undos, and refunds).
+  xpEarned: number;
 }
 
 // =============================================================================
@@ -296,6 +299,9 @@ export interface XpLogEntry {
   amount: number; // signed: +earned, -spent/undone
   reason: string; // e.g. "Completed: Beast Academy page"
   balance?: number; // pet.xp after this change
+  // Local day (yyyy-mm-dd) this change is attributed to. Used to bucket XP per
+  // day for the history heatmap (at is UTC and can cross the local date line).
+  date?: string;
 }
 
 export interface XpLogResponse {
