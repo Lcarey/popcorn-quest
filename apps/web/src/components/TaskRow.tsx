@@ -34,7 +34,7 @@ export function TaskRow({ emoji, title, done, subtitle, onToggle, rightSlot, dis
         <div className={["font-display font-semibold truncate", done ? "line-through text-cocoa/60" : "text-cocoa"].join(" ")}>
           {title}
         </div>
-        {subtitle && <div className="text-xs text-cocoa/70 mt-0.5 truncate">{subtitle}</div>}
+        {subtitle && <div className="text-xs text-cocoa/70 mt-0.5 leading-snug break-words">{subtitle}</div>}
       </div>
       {rightSlot}
       <motion.div

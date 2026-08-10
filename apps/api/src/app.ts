@@ -114,6 +114,19 @@ function newId(): string {
   return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-6);
 }
 
+function optionalText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalXp(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const xp = Number(value);
+  if (!Number.isInteger(xp) || xp < 1 || xp > 1_000) {
+    throw new HttpError(400, "xp must be a whole number between 1 and 1000");
+  }
+  return xp;
+}
+
 // Record an XP change so parents can audit how XP was earned/spent. `balance`
 // is the pet's XP after the change. Best-effort: never let logging failures
 // break the mutation that triggered them.
@@ -645,6 +658,8 @@ app.post("/templates", async (c) => {
     id: newId(),
     title: requireString(body.title, "title"),
     emoji: body.emoji || (cadence === "weekly" ? "📅" : "✅"),
+    description: optionalText(body.description),
+    xp: optionalXp(body.xp),
     cadence,
     weeklyTarget,
     weeklyTrack,
@@ -671,6 +686,8 @@ app.patch("/templates/:id", async (c) => {
     ...existing,
     title: body.title?.trim() || existing.title,
     emoji: body.emoji || existing.emoji,
+    description: body.description === undefined ? existing.description : optionalText(body.description),
+    xp: body.xp === undefined ? existing.xp : optionalXp(body.xp),
     cadence,
     repeatable,
     weeklyTrack: isCumulative ? "cumulative" : undefined,

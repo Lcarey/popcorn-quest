@@ -212,12 +212,12 @@ export function Home() {
     ? Math.max(
         1,
         Math.round(
-          state.daily.length * XP_PER.daily +
+          state.daily.reduce((sum, d) => sum + taskXp(d.template), 0) +
             XP_PER.fullDayBonus +
             state.weekly.reduce((sum, w) => {
               const perWeek =
                 w.template.weeklyTrack === "cumulative" ? 7 : Math.min(w.target, 7);
-              return sum + (perWeek * XP_PER.weekly) / 7;
+              return sum + (perWeek * taskXp(w.template)) / 7;
             }, 0),
         ),
       )
@@ -283,6 +283,7 @@ export function Home() {
                       emoji={d.template.emoji}
                       title={d.template.title}
                       done={d.completedToday}
+                      subtitle={taskSubtitle(d.template)}
                       onToggle={() => completeMut.mutate({ templateId: d.template.id })}
                     />
                   ),
@@ -470,6 +471,15 @@ function formatBuildTime(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function taskXp(template: { cadence: "daily" | "weekly"; xp?: number }): number {
+  return template.xp ?? (template.cadence === "daily" ? XP_PER.daily : XP_PER.weekly);
+}
+
+function taskSubtitle(template: { cadence: "daily" | "weekly"; description?: string; xp?: number }): string {
+  const xp = `+${taskXp(template)} XP`;
+  return template.description ? `${template.description} • ${xp}` : xp;
 }
 
 function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {

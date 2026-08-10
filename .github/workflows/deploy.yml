@@ -1,0 +1,47 @@
+name: Deploy Popcorn Quest
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one production deployment should run at a time.  Let an in-progress
+# release finish so its CloudFormation and asset-upload steps stay in order.
+concurrency:
+  group: popcorn-quest-production
+  cancel-in-progress: false
+
+# id-token lets this workflow exchange GitHub's short-lived OIDC token for the
+# narrowly scoped AWS deployment role. No AWS access keys are stored in GitHub.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Authenticate to AWS
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        with:
+          role-to-assume: arn:aws:iam::342206308993:role/PopcornQuestGitHubDeploy
+          role-session-name: popcorn-quest-github-deploy
+          aws-region: us-east-1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and deploy
+        run: ./scripts/deploy.sh

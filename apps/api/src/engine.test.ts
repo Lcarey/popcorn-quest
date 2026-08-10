@@ -9,6 +9,7 @@ import {
   refundXp,
   reverseEarn,
   spendXp,
+  xpForTask,
 } from "./engine.js";
 
 function pet(overrides: Partial<PetState> = {}): PetState {
@@ -132,4 +133,18 @@ test("refundXp raises only spendable, not total or level", () => {
   assert.equal(p.spendableXp, 35);
   assert.equal(p.xp, 100);
   assert.equal(p.level, 3);
+});
+
+test("a task can override its default XP", () => {
+  const template = {
+    id: "social-hard",
+    title: "Hard social practice",
+    emoji: "💪",
+    cadence: "daily" as const,
+    weeklyTarget: 1,
+    repeatable: false,
+    xp: 20,
+    createdAt: new Date().toISOString(),
+  };
+  assert.equal(xpForTask(template), 20);
 });

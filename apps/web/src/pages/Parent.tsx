@@ -28,6 +28,8 @@ function ParentPanel() {
       weeklyTarget: number;
       weeklyTrack?: WeeklyTrack;
       repeatable: boolean;
+      description?: string;
+      xp?: number;
     }) => api.createTemplate(vars),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["state", date] });
@@ -47,13 +49,17 @@ function ParentPanel() {
       emoji,
       weeklyTarget,
       repeatable,
+      description,
+      xp,
     }: {
       id: string;
       title?: string;
       emoji?: string;
       weeklyTarget?: number;
       repeatable?: boolean;
-    }) => api.updateTemplate(id, { title, emoji, weeklyTarget, repeatable }),
+      description?: string;
+      xp?: number;
+    }) => api.updateTemplate(id, { title, emoji, weeklyTarget, repeatable, description, xp }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["state", date] }),
   });
 
@@ -150,10 +156,14 @@ function CreateTemplateForm({
     weeklyTarget: number;
     weeklyTrack?: WeeklyTrack;
     repeatable: boolean;
+    description?: string;
+    xp?: number;
   }) => void;
 }) {
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("✅");
+  const [description, setDescription] = useState("");
+  const [xp, setXp] = useState("");
   const [cadence, setCadence] = useState<Cadence>("daily");
   const [weeklyTrack, setWeeklyTrack] = useState<WeeklyTrack>("sessions");
   const [target, setTarget] = useState(3);
@@ -175,6 +185,13 @@ function CreateTemplateForm({
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Title (e.g. Practice clarinet)"
         className="w-full px-4 py-3 rounded-2xl bg-white border-2 border-white shadow-inner font-display text-lg focus:outline-none focus:border-coral"
+      />
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Optional details or examples"
+        rows={2}
+        className="w-full px-4 py-3 rounded-2xl bg-white border-2 border-white shadow-inner text-sm focus:outline-none focus:border-coral resize-y"
       />
       <div className="flex gap-2">
         <input
@@ -204,6 +221,18 @@ function CreateTemplateForm({
           </button>
         </div>
       </div>
+      <label className="block">
+        <span className="text-sm font-semibold text-cocoa/70 block mb-1">XP per completion (optional)</span>
+        <input
+          type="number"
+          min={1}
+          max={1000}
+          value={xp}
+          onChange={(e) => setXp(e.target.value)}
+          placeholder={cadence === "daily" ? "5" : "15"}
+          className="w-28 px-3 py-2 rounded-xl bg-white border-2 border-white shadow-inner text-center"
+        />
+      </label>
 
       <RepeatableToggle cadence={cadence} repeatable={repeatable} onChange={setRepeatable} />
 
@@ -262,6 +291,8 @@ function CreateTemplateForm({
               weeklyTarget: cadence === "weekly" && repeatable ? target : 1,
               weeklyTrack: cadence === "weekly" && repeatable ? weeklyTrack : undefined,
               repeatable,
+              description: description.trim() || undefined,
+              xp: xp ? Number(xp) : undefined,
             })
           }
         >
@@ -311,11 +342,13 @@ function TemplateCard({
 }: {
   template: TaskTemplate;
   onDelete: () => void;
-  onUpdate: (u: { title?: string; emoji?: string; weeklyTarget?: number; repeatable?: boolean }) => void;
+  onUpdate: (u: { title?: string; emoji?: string; weeklyTarget?: number; repeatable?: boolean; description?: string; xp?: number }) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(template.title);
   const [emoji, setEmoji] = useState(template.emoji);
+  const [description, setDescription] = useState(template.description ?? "");
+  const [xp, setXp] = useState(template.xp?.toString() ?? "");
   const [target, setTarget] = useState(template.weeklyTarget);
   const [repeatable, setRepeatable] = useState(template.repeatable);
   const isCumulative = template.weeklyTrack === "cumulative";
@@ -355,6 +388,25 @@ function TemplateCard({
                 />
               )}
             </div>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional details or examples"
+              rows={2}
+              className="w-full px-3 py-2 rounded-xl bg-white border-2 border-white shadow-inner text-sm resize-y"
+            />
+            <label className="flex items-center gap-2 text-sm font-semibold text-cocoa">
+              XP
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={xp}
+                onChange={(e) => setXp(e.target.value)}
+                placeholder={template.cadence === "daily" ? "5" : "15"}
+                className="w-20 px-2 py-2 rounded-xl bg-white border-2 border-white shadow-inner text-center"
+              />
+            </label>
             <label className="flex items-center justify-between gap-3 cursor-pointer bg-white rounded-xl px-3 py-2">
               <span className="text-sm font-semibold text-cocoa">Can be done multiple times?</span>
               <input
@@ -372,6 +424,8 @@ function TemplateCard({
                   emoji: emoji || template.emoji,
                   weeklyTarget: template.cadence === "weekly" && repeatable ? target : undefined,
                   repeatable,
+                  description: description.trim() || undefined,
+                  xp: xp ? Number(xp) : undefined,
                 });
                 setEditing(false);
               }}
@@ -382,7 +436,8 @@ function TemplateCard({
         ) : (
           <>
             <div className="font-display font-semibold">{template.title}</div>
-            <div className="text-xs text-cocoa/70">{meta}</div>
+            <div className="text-xs text-cocoa/70">{meta} · +{template.xp ?? (template.cadence === "daily" ? 5 : 15)} XP</div>
+            {template.description && <div className="text-xs text-cocoa/70 mt-1 leading-snug">{template.description}</div>}
           </>
         )}
       </div>

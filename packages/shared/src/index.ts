@@ -11,6 +11,10 @@ export interface TaskTemplate {
   id: string;
   title: string;
   emoji: string;
+  /** Optional kid-facing guidance, shown below the task title. */
+  description?: string;
+  /** Per-completion XP override. Omit to use the cadence default. */
+  xp?: number;
   cadence: Cadence;
   // sessions = times per week (1–7); cumulative = total units (e.g. 500). Daily = 1.
   weeklyTarget: number;
@@ -231,6 +235,8 @@ export interface CreateTemplateRequest {
   pin?: string;
   title: string;
   emoji: string;
+  description?: string;
+  xp?: number;
   cadence: Cadence;
   weeklyTarget?: number;
   weeklyTrack?: WeeklyTrack;
@@ -241,6 +247,8 @@ export interface UpdateTemplateRequest {
   pin?: string;
   title?: string;
   emoji?: string;
+  description?: string;
+  xp?: number;
   cadence?: Cadence;
   weeklyTarget?: number;
   weeklyTrack?: WeeklyTrack;

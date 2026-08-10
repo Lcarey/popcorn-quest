@@ -276,7 +276,7 @@ export function priorDate(date: string, daysAgo = 1): string {
 }
 
 export function xpForTask(template: TaskTemplate): number {
-  return template.cadence === "daily" ? XP_PER.daily : XP_PER.weekly;
+  return template.xp ?? (template.cadence === "daily" ? XP_PER.daily : XP_PER.weekly);
 }
 
 /** Most recent session completion for a template within a week (for undo). */
