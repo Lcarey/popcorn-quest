@@ -334,7 +334,7 @@ app.post("/setup", async (c) => {
         weeklyTarget: 1,
         repeatable: false,
         description:
-          "Do one small social thing that feels a little uncomfortable. Try: greet a familiar adult by name, say something to a familiar adult without Dad/Mom prompting, or greet a non-friend kid by name (like a teammate or fellow camper).",
+          "Do one small social thing that feels uncomfortable. Try: greet a familiar adult by name, say something to a familiar adult without Dad/Mom prompting, or greet a non-friend kid by name (like a teammate or fellow camper).",
         xp: 20,
         createdAt: new Date().toISOString(),
       },
