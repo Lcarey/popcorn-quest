@@ -138,7 +138,7 @@ test("refundXp raises only spendable, not total or level", () => {
 test("a task can override its default XP", () => {
   const template = {
     id: "social-hard",
-    title: "Hard social practice",
+    title: "Hard social interaction",
     emoji: "💪",
     cadence: "daily" as const,
     weeklyTarget: 1,

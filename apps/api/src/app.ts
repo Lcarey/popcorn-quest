@@ -307,11 +307,35 @@ app.post("/setup", async (c) => {
       },
       {
         id: newId(),
-        title: "Beast Academy (1 page/day)",
+        title: "1 piece of paper of math (Beast Academy, Kangaroo), 100% correct",
         emoji: "📚",
         cadence: "daily",
         weeklyTarget: 1,
         repeatable: true,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: newId(),
+        title: "Easy social interaction",
+        emoji: "👋",
+        cadence: "daily",
+        weeklyTarget: 1,
+        repeatable: false,
+        description:
+          'Do one small social thing that feels a little uncomfortable. Try: greet a friend by name ("Hey, Alex"), initiate a high-five at frisbee, or ask one simple question.',
+        xp: 5,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: newId(),
+        title: "Hard social interaction",
+        emoji: "💪",
+        cadence: "daily",
+        weeklyTarget: 1,
+        repeatable: false,
+        description:
+          "Do one small social thing that feels a little uncomfortable. Try: greet a familiar adult by name, say something to a familiar adult without Dad/Mom prompting, or greet a non-friend kid by name (like a teammate or fellow camper).",
+        xp: 20,
         createdAt: new Date().toISOString(),
       },
       {
