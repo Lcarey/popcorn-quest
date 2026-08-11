@@ -340,6 +340,18 @@ app.post("/setup", async (c) => {
       },
       {
         id: newId(),
+        title: "Ask a question and listen",
+        emoji: "❓",
+        cadence: "daily",
+        weeklyTarget: 1,
+        repeatable: false,
+        description:
+          "Unprompted, ask someone a question, and listen to their response.",
+        xp: 20,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: newId(),
         title: "Practice clarinet",
         emoji: "🎵",
         cadence: "weekly",
