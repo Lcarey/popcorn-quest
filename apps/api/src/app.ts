@@ -323,7 +323,7 @@ app.post("/setup", async (c) => {
         repeatable: false,
         description:
           'Do one small social thing that feels a little uncomfortable. Try: greet a friend by name ("Hey, Alex"), initiate a high-five at frisbee, or ask one simple question.',
-        xp: 5,
+        xp: 10,
         createdAt: new Date().toISOString(),
       },
       {
@@ -335,7 +335,7 @@ app.post("/setup", async (c) => {
         repeatable: false,
         description:
           "Do one small social thing that feels uncomfortable. Try: greet a familiar adult by name, say something to a familiar adult without Dad/Mom prompting, or greet a non-friend kid by name (like a teammate or fellow camper).",
-        xp: 20,
+        xp: 30,
         createdAt: new Date().toISOString(),
       },
       {
@@ -347,7 +347,7 @@ app.post("/setup", async (c) => {
         repeatable: false,
         description:
           "Unprompted, ask someone a question, and listen to their response.",
-        xp: 20,
+        xp: 30,
         createdAt: new Date().toISOString(),
       },
       {
