@@ -6,6 +6,8 @@ import { motion } from "framer-motion";
 export function RepeatableDailyRow({
   emoji,
   title,
+  subtitle,
+  xp,
   count,
   onAdd,
   onRemove,
@@ -13,6 +15,8 @@ export function RepeatableDailyRow({
 }: {
   emoji: string;
   title: string;
+  subtitle?: string;
+  xp: number;
   count: number; // times logged today
   onAdd?: () => void;
   onRemove?: () => void;
@@ -35,12 +39,13 @@ export function RepeatableDailyRow({
       </div>
       <div className="flex-1 text-left min-w-0">
         <div className="font-display font-semibold truncate text-cocoa">{title}</div>
+        {subtitle && <div className="text-xs text-cocoa/70 mt-0.5 leading-snug">{subtitle}</div>}
         <div className="text-xs text-cocoa/70 mt-0.5">
           {done
             ? extra > 0
-              ? `Done + ${extra} extra today • +5 each`
-              : "Done today • extra pages earn +5"
-            : "1 required today • extra pages earn +5"}
+              ? `Done + ${extra} extra today • +${xp} each`
+              : `Done today • extra reps earn +${xp}`
+            : `1 required today • extra reps earn +${xp}`}
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">

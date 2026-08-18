@@ -316,6 +316,18 @@ app.post("/setup", async (c) => {
       },
       {
         id: newId(),
+        title: "100 XP in Duolingo",
+        emoji: "🦉",
+        cadence: "daily",
+        weeklyTarget: 1,
+        repeatable: true,
+        description:
+          "Every 100 XP in Duolingo earns 15 XP in Popcorn Quest. Repeat as many times as you want in a day.",
+        xp: 15,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: newId(),
         title: "Easy social interaction",
         emoji: "👋",
         cadence: "daily",

@@ -273,6 +273,8 @@ export function Home() {
                       key={d.template.id}
                       emoji={d.template.emoji}
                       title={d.template.title}
+                      subtitle={d.template.description}
+                      xp={taskXp(d.template)}
                       count={d.amountToday ?? 0}
                       onAdd={() => completeMut.mutate({ templateId: d.template.id, delta: 1 })}
                       onRemove={() => completeMut.mutate({ templateId: d.template.id, delta: -1 })}
