@@ -45,7 +45,7 @@ export function RepeatableDailyRow({
             ? extra > 0
               ? `Done + ${extra} extra today • +${xp} each`
               : `Done today • extra reps earn +${xp}`
-            : `1 required today • extra reps earn +${xp}`}
+            : ""}
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
