@@ -13,9 +13,11 @@ import {
   moodFromProgress,
   todayKey,
   weekStartKey,
+  xpCompletionDelta,
 } from "@popcorn/shared";
 import type {
   AdhocTask,
+  DaySummaryResponse,
   Completion,
   DailyHistoryEntry,
   DailyTaskView,
@@ -197,6 +199,7 @@ export function buildHistory(
   completionsByDate: Map<string, Completion[]>,
   days: string[],
   xpEarnedByDate?: Map<string, number>,
+  xpCompletionsByDate?: Map<string, number>,
 ): DailyHistoryEntry[] {
   // Daily required = number of daily templates.
   const dailyTemplates = templates.filter((t) => t.cadence === "daily");
@@ -211,6 +214,7 @@ export function buildHistory(
       completed,
       ratio: required === 0 ? 0 : completed / required,
       xpEarned: xpEarnedByDate?.get(date) ?? 0,
+      completions: xpCompletionsByDate?.get(date) ?? 0,
     };
   });
 }
@@ -298,6 +302,41 @@ export function xpLogDate(entry: XpLogEntry): string {
   return entry.date ?? todayKey(new Date(entry.at));
 }
 
+/** "today" / "yesterday" / yyyy-mm-dd → yyyy-mm-dd; undefined if unrecognised. */
+export function resolveDateKeyword(v: string): string | undefined {
+  const s = v.trim().toLowerCase();
+  if (s === "today") return todayKey();
+  if (s === "yesterday") return priorDate(todayKey(), 1);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+}
+
+/** "7:57 PM  +15  Completed: Submit RSM" in server-local (family) time. */
+export function formatXpItem(e: XpLogEntry): string {
+  const time = new Date(e.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${time}  ${e.amount > 0 ? "+" : ""}${e.amount}  ${e.reason}`;
+}
+
+/**
+ * Tasks done on a day, from the XP log (net of undos), oldest first. Repeats
+ * become "Title ×n". The log is the source of truth: side quest records
+ * expire after a couple of days but their log entries don't.
+ */
+export function tasksDoneFromLog(dayEntries: XpLogEntry[]): string[] {
+  const counts = new Map<string, number>();
+  for (const e of dayEntries) {
+    const delta = xpCompletionDelta(e);
+    if (delta === 0) continue;
+    const m = /^(?:Completed|Undid): (.*)$/.exec(e.reason);
+    const sq = /^(?:Side quest|Undid side quest): (.*)$/.exec(e.reason);
+    const name = sq ? `${sq[1]} (side quest)` : m?.[1];
+    if (!name) continue;
+    counts.set(name, (counts.get(name) ?? 0) + delta);
+  }
+  return [...counts]
+    .filter(([, n]) => n > 0)
+    .map(([name, n]) => (n > 1 ? `${name} ×${n}` : name));
+}
+
 /**
  * Roll up one local day of XP log entries. "Earned" matches the heatmap rule
  * in loadState: positive amounts that aren't reward refunds.
@@ -311,8 +350,10 @@ export function summarizeXpDay(entries: XpLogEntry[], date: string): XpDaySummar
   let undone = 0;
   let refunded = 0;
   let net = 0;
+  let completions = 0;
   for (const e of day) {
     net += e.amount;
+    completions += xpCompletionDelta(e);
     if (e.amount > 0) {
       if (e.reason.startsWith("Refund")) refunded += e.amount;
       else earned += e.amount;
@@ -322,5 +363,69 @@ export function summarizeXpDay(entries: XpLogEntry[], date: string): XpDaySummar
       spent -= e.amount;
     }
   }
-  return { date, earned, spent, undone, refunded, net, entries: day };
+  return { date, earned, spent, undone, refunded, net, completions: Math.max(0, completions), entries: day };
+}
+
+/**
+ * One-call day recap for agents (GET /summary, get_day_summary). Done tasks
+ * and counts come from the XP log; remaining tasks from that day's state.
+ */
+export function buildDaySummary(
+  state: TodayState,
+  logs: XpLogEntry[],
+  date: string,
+  today: string = todayKey(),
+): DaySummaryResponse {
+  const xp = summarizeXpDay(logs, date);
+  const label = (title: string, emoji: string) => `${emoji} ${title}`;
+  const tasksRemaining: string[] = [];
+  for (const d of state.daily) {
+    if (!d.completedToday) tasksRemaining.push(label(d.template.title, d.template.emoji));
+  }
+  for (const w of state.weekly) {
+    if (!w.completedToday && w.doneThisWeek < w.target) {
+      tasksRemaining.push(`${label(w.template.title, w.template.emoji)} (${w.doneThisWeek}/${w.target} this week)`);
+    }
+  }
+  for (const a of state.adhoc) {
+    if (!a.done) tasksRemaining.push(`${label(a.title, a.emoji)} (side quest)`);
+  }
+  const { pet } = state.family;
+  return {
+    date,
+    today,
+    howToAnswer:
+      "To say how XP was earned, list every line of earnedItems (repeated lines are separate completions; keep them all) and give xpEarned as the total. completions is the number of tasks and side quests done, repeats included. Mention otherItems (spending, undos) separately.",
+    xpEarned: xp.earned,
+    completions: xp.completions,
+    earnedItems: xp.entries.filter((e) => e.amount > 0 && !e.reason.startsWith("Refund")).map(formatXpItem),
+    otherItems: xp.entries.filter((e) => e.amount <= 0 || e.reason.startsWith("Refund")).map(formatXpItem),
+    tasksDone: tasksDoneFromLog(xp.entries),
+    tasksRemaining,
+    pet: { name: pet.name, level: pet.level, xp: pet.xp, spendableXp: pet.spendableXp },
+    streak: state.family.streak,
+    streakShields: state.family.streakShields ?? 0,
+    pendingClaims: state.pendingClaims.map((cl) => ({
+      rewardTitle: cl.rewardTitle,
+      cost: cl.cost,
+      claimedAt: cl.claimedAt,
+    })),
+    xp,
+  };
+}
+
+/** Plain-text day recap (GET /summary?format=text) for browser-only agents. */
+export function daySummaryText(s: DaySummaryResponse): string {
+  const lines = [
+    `Popcorn Quest XP for ${s.date}${s.date === s.today ? " (today)" : ""}`,
+    `Earned ${s.xpEarned} XP from ${s.completions} completions. Each line below is one completion; repeated lines mean the task was done more than once.`,
+    "",
+    "Earned:",
+    ...(s.earnedItems.length ? s.earnedItems.map((l) => `  ${l}`) : ["  (nothing)"]),
+    `  Total: +${s.xpEarned} XP`,
+  ];
+  if (s.otherItems.length) lines.push("", "Spent / undone:", ...s.otherItems.map((l) => `  ${l}`));
+  if (s.tasksRemaining.length) lines.push("", "Not done:", ...s.tasksRemaining.map((t) => `  ${t}`));
+  lines.push("", `${s.pet.name}: level ${s.pet.level}, ${s.pet.spendableXp} XP to spend. Streak: ${s.streak} days.`);
+  return lines.join("\n") + "\n";
 }

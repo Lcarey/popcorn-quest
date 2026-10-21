@@ -11,9 +11,11 @@ import {
   COSMETICS,
   STREAK_SHIELD,
   XP_PER,
+  isXpEarn,
   levelFromXp,
   todayKey,
   weekStartKey,
+  xpCompletionDelta,
 } from "@popcorn/shared";
 import type {
   AdhocRequest,
@@ -42,7 +44,6 @@ import type {
   UpdateTemplateRequest,
   WeatherToday,
   CalendarEventsResponse,
-  DaySummaryResponse,
   XpLogEntry,
   XpLogResponse,
 } from "@popcorn/shared";
@@ -80,7 +81,9 @@ import {
   refundXp,
   reverseEarn,
   spendXp,
-  summarizeXpDay,
+  buildDaySummary,
+  daySummaryText,
+  resolveDateKeyword,
   xpForTask,
   xpLogDate,
 } from "./engine.js";
@@ -202,8 +205,9 @@ async function checkPin(pin: string): Promise<boolean> {
 
 function optionalDate(v: string | undefined, name: string): string | undefined {
   if (!v) return undefined;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, `'${name}' must be yyyy-mm-dd`);
-  return v;
+  const date = resolveDateKeyword(v);
+  if (!date) throw new HttpError(400, `'${name}' must be yyyy-mm-dd, "today" or "yesterday"`);
+  return date;
 }
 
 function requireString(v: unknown, name: string): string {
@@ -287,40 +291,12 @@ app.get("/xp-log", async (c) => {
 
 // ------- GET /summary (one-call day recap for agents like Muse) ----------
 
+// ?format=text returns a plain-text recap for agents that only browse.
 app.get("/summary", async (c) => {
   const date = optionalDate(c.req.query("date"), "date") ?? todayKey();
   const [state, logs] = await Promise.all([loadState(date, false), listXpLogInDays(date)]);
-  const label = (title: string, emoji: string) => `${emoji} ${title}`;
-  const tasksDone: string[] = [];
-  const tasksRemaining: string[] = [];
-  for (const d of state.daily) {
-    const name = label(d.template.title, d.template.emoji);
-    if (d.completedToday) tasksDone.push(d.amountToday && d.amountToday > 1 ? `${name} ×${d.amountToday}` : name);
-    else tasksRemaining.push(name);
-  }
-  for (const w of state.weekly) {
-    const name = `${label(w.template.title, w.template.emoji)} (${w.doneThisWeek}/${w.target} this week)`;
-    if (w.completedToday) tasksDone.push(name);
-    else if (w.doneThisWeek < w.target) tasksRemaining.push(name);
-  }
-  for (const a of state.adhoc) {
-    (a.done ? tasksDone : tasksRemaining).push(`${label(a.title, a.emoji)} (side quest)`);
-  }
-  const { pet } = state.family;
-  const resp: DaySummaryResponse = {
-    date,
-    pet: { name: pet.name, level: pet.level, xp: pet.xp, spendableXp: pet.spendableXp },
-    streak: state.family.streak,
-    streakShields: state.family.streakShields ?? 0,
-    xp: summarizeXpDay(logs, date),
-    tasksDone,
-    tasksRemaining,
-    pendingClaims: state.pendingClaims.map((cl) => ({
-      rewardTitle: cl.rewardTitle,
-      cost: cl.cost,
-      claimedAt: cl.claimedAt,
-    })),
-  };
+  const resp = buildDaySummary(state, logs, date);
+  if (c.req.query("format") === "text") return c.text(daySummaryText(resp));
   return c.json(resp);
 });
 
@@ -468,7 +444,7 @@ app.post("/setup", async (c) => {
 // ------- GET /state ------------------------------------------------------
 
 app.get("/state", async (c) => {
-  const date = c.req.query("date") || todayKey();
+  const date = optionalDate(c.req.query("date"), "date") ?? todayKey();
   const includeHistory = c.req.query("history") === "1";
   const state = await loadState(date, includeHistory);
   return c.json(state satisfies TodayState);
@@ -511,19 +487,20 @@ async function loadState(
       byDate.set(c.date, arr);
     }
 
-    // XP earned per day, from the audit log. Fetch from a day before the window
-    // (log `at` is UTC; entries carry a local `date` we bucket by). Only count
-    // earns: positive amounts that aren't reward refunds.
+    // XP earned and completions per day, from the audit log. Fetch from a day
+    // before the window (log `at` is UTC; entries carry a local `date` we
+    // bucket by). Earns are positive amounts that aren't reward refunds.
     const sinceIso = `${priorDate(days[0], 1)}T00:00:00.000Z`;
     const logs = await listXpLogSince(sinceIso);
     const xpByDate = new Map<string, number>();
+    const completionsByDate = new Map<string, number>();
     for (const e of logs) {
-      if (e.amount <= 0 || e.reason.startsWith("Refund")) continue;
       const d = e.date ?? e.at.slice(0, 10);
-      xpByDate.set(d, (xpByDate.get(d) ?? 0) + e.amount);
+      if (isXpEarn(e)) xpByDate.set(d, (xpByDate.get(d) ?? 0) + e.amount);
+      completionsByDate.set(d, (completionsByDate.get(d) ?? 0) + xpCompletionDelta(e));
     }
 
-    history = buildHistory(templates, byDate, days, xpByDate);
+    history = buildHistory(templates, byDate, days, xpByDate, completionsByDate);
   }
 
   return buildTodayState(
@@ -980,26 +957,34 @@ const LLMS_TXT = `# Popcorn Quest API
 Popcorn Quest is a kid's chore and goal tracker: finishing tasks earns XP for
 Popcorn, a virtual dog who levels up. No authentication is required. Paths are
 relative to the site this file was served from. Dates are local US Eastern days
-(yyyy-mm-dd) and default to today.
+(yyyy-mm-dd, or the words "today" / "yesterday") and default to today.
 
 ## Preferred: MCP server
 POST /api/mcp (streamable HTTP, stateless, JSON responses, no auth)
 Tools: get_day_summary, get_xp_log, get_status, list_tasks, get_history,
 complete_task, undo_task, add_side_quest.
 
+## Browsing only? Open this URL
+GET /api/summary?date=yesterday&format=text
+  Plain-text recap: every XP item with its time, the total, and what's left.
+
 ## REST (read)
 GET /api/summary?date=yyyy-mm-dd
-  One-call recap of a day: XP earned/spent/undone with every log entry, tasks
-  done and remaining, pet level and XP, streak, pending reward claims.
+  One-call recap of a day. Read it top down: xpEarned, completions (tasks and
+  side quests done, repeats counted separately), earnedItems (one line per XP
+  log entry, US Eastern time), otherItems (spending, undos), tasksDone,
+  tasksRemaining, then pet, streak, pending claims and the raw xp log.
 GET /api/xp-log?date=yyyy-mm-dd        one day's XP log, oldest first
 GET /api/xp-log?from=yyyy-mm-dd&to=... a range of days
 GET /api/xp-log?limit=50               most recent entries, newest first
-  Each entry: at (ISO time), amount (signed), reason, balance (spendable XP
-  after), date. Reasons look like "Completed: <task>", "Side quest: <task>",
-  "All daily tasks done (bonus)", "Undid: <task>", "Reward claimed: <reward>",
-  "Bought streak shield", "Refund (denied): <reward>".
+  Each entry: at (ISO time, UTC), amount (signed), reason, balance (spendable
+  XP after), date (local day). Reasons look like "Completed: <task>",
+  "Side quest: <task>", "All daily tasks done (bonus)", "Undid: <task>",
+  "Reward claimed: <reward>", "Bought streak shield", "Refund (denied): <reward>".
 GET /api/state?date=yyyy-mm-dd         full task state (ids for POST /complete)
-GET /api/state?history=1               adds the last 14 days of completion and XP
+GET /api/state?history=1               adds the last 14 days. In history,
+  completed/required counts only distinct daily tasks; completions counts
+  every task and side quest done.
 
 ## REST (write)
 POST /api/complete  {"templateId": "...", "date": "yyyy-mm-dd"}
@@ -1008,8 +993,9 @@ POST /api/complete  {"templateId": "...", "date": "yyyy-mm-dd"}
 POST /api/adhoc     {"title": "...", "emoji": "✨", "date": "yyyy-mm-dd"}
 
 ## Example
-"What did the kid do to earn XP today?" -> GET /api/summary and read
-xp.entries (or call the get_day_summary MCP tool).
+"How did the kid earn XP yesterday?" -> GET /api/summary?date=yesterday.
+List every line of earnedItems (repeated lines are separate completions, keep
+them all) and give xpEarned as the total.
 `;
 
 export default app;

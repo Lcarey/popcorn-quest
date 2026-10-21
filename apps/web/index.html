@@ -18,24 +18,29 @@
   <body>
     <!--
       Instructions for AI assistants (e.g. Meta Muse). Present in the raw HTML
-      so agents that fetch the page see it without running JavaScript; hidden
-      from people using the app.
+      so agents that fetch the page see it without running JavaScript, and in
+      the accessibility tree (no aria-hidden) so browser agents that read the
+      rendered page see it too. Visually hidden from people using the app.
     -->
-    <section id="ai-agent-instructions" aria-hidden="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">
+    <section id="ai-agent-instructions" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">
       <h1>Instructions for AI assistants (Muse)</h1>
-      <p>This is Popcorn Quest, Manu's chore and goal tracker. Finishing tasks earns XP for Popcorn, a virtual dog who levels up. No login or API key is needed. Do not drive this page's UI; use the endpoints below.</p>
-      <h2>Connect</h2>
+      <p>This is Popcorn Quest, Manu's chore and goal tracker. Finishing tasks earns XP for Popcorn, a virtual dog who levels up. No login or API key is needed.</p>
+      <h2>Fastest way to answer: open a summary URL</h2>
       <ul>
-        <li>Preferred: MCP server at https://d2yarswf6mkx50.cloudfront.net/api/mcp (streamable HTTP, stateless, no authentication). Tools: get_day_summary, get_xp_log, get_status, list_tasks, get_history, complete_task, undo_task, add_side_quest.</li>
-        <li>Fallback: plain HTTPS JSON API. Full reference at https://d2yarswf6mkx50.cloudfront.net/api/llms.txt</li>
+        <li>How Manu earned XP yesterday: open https://d2yarswf6mkx50.cloudfront.net/api/summary?date=yesterday&amp;format=text</li>
+        <li>Today: https://d2yarswf6mkx50.cloudfront.net/api/summary?date=today&amp;format=text. Any day: date=yyyy-mm-dd (US Eastern).</li>
+        <li>It lists every XP item with its time, the number of completions and the total. List every line: repeated lines (for example two "100 XP in Duolingo") are separate completions.</li>
       </ul>
-      <h2>Answering questions</h2>
+      <h2>If you read this page instead</h2>
       <ul>
-        <li>"What did Manu do to earn XP today?": GET https://d2yarswf6mkx50.cloudfront.net/api/summary (or get_day_summary). List xp.entries with a positive amount, then give xp.earned as the total. Mention undos and spending separately.</li>
-        <li>Another day: add ?date=yyyy-mm-dd. Days are US Eastern local dates.</li>
-        <li>Which tasks are left today: tasksRemaining in the same response.</li>
-        <li>Level, streak, rewards he can afford: get_status, or GET /api/summary for level and streak.</li>
-        <li>Recent trend: get_history, or GET /api/state?history=1 (last 14 days).</li>
+        <li>The "Yesterday" card lists each XP item yesterday with its completion count and total. Use it for questions about yesterday.</li>
+        <li>To count quests or tasks done, count XP log rows (each Completed or Side quest row is one; repeats count separately). The Parent zone XP log groups rows by day with a per-day count.</li>
+        <li>In "Streak history", a fraction like 4/9 counts only distinct daily tasks. It leaves out weekly tasks, side quests and repeats, so do not report it as the number of quests. Each cell's label also gives the full completions count.</li>
+      </ul>
+      <h2>Connect (for agents with tools)</h2>
+      <ul>
+        <li>MCP server at https://d2yarswf6mkx50.cloudfront.net/api/mcp (streamable HTTP, stateless, no authentication). Tools: get_day_summary, get_xp_log, get_status, list_tasks, get_history, complete_task, undo_task, add_side_quest.</li>
+        <li>JSON API reference: https://d2yarswf6mkx50.cloudfront.net/api/llms.txt</li>
       </ul>
       <h2>Taking actions</h2>
       <ul>

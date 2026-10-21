@@ -18,16 +18,23 @@ export function HistoryHeatmap({ history }: { history: DailyHistoryEntry[] }) {
 }
 
 function Cell({ entry }: { entry: DailyHistoryEntry }) {
-  const dayName = new Date(`${entry.date}T00:00:00`).toLocaleDateString(undefined, {
-    weekday: "short",
-  })[0];
+  const day = new Date(`${entry.date}T00:00:00`);
+  const dayName = day.toLocaleDateString(undefined, { weekday: "short" })[0];
   const ratio = entry.required > 0 ? entry.ratio : 0;
   const xp = entry.xpEarned ?? 0;
+  const completions = entry.completions ?? 0;
+  // Spell out what each number counts: "4/9" alone reads like "4 quests" when
+  // it's only distinct daily tasks (weekly tasks, side quests and repeats
+  // aren't in it). Agents reading the page get this via aria-label.
+  const label = [
+    day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+    `${completions} ${completions === 1 ? "completion" : "completions"}`,
+    entry.required > 0 ? `${entry.completed}/${entry.required} daily tasks` : "no daily tasks",
+    `+${xp} XP`,
+  ].join(" • ");
   let bg = "bg-white/60";
-  let label = `${entry.completed}/${entry.required}`;
   if (entry.required === 0) {
     bg = "bg-white/40";
-    label = "—";
   } else if (ratio >= 1) bg = "bg-mint";
   else if (ratio >= 0.66) bg = "bg-mint/70";
   else if (ratio >= 0.33) bg = "bg-butter";
@@ -37,7 +44,9 @@ function Cell({ entry }: { entry: DailyHistoryEntry }) {
   return (
     <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
       <div
-        title={`${entry.date} • ${label} • ${xp} XP`}
+        role="img"
+        title={label}
+        aria-label={label}
         className={`w-full aspect-square rounded-lg border-2 border-white shadow-chunky-sm ${bg} flex items-center justify-center text-[11px] font-bold text-cocoa/70 leading-none`}
       >
         {xp > 0 ? xp : ""}

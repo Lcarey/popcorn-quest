@@ -26,6 +26,7 @@ import type {
   UpdateTemplateRequest,
   WeatherToday,
   CalendarEventsResponse,
+  DaySummaryResponse,
   XpLogResponse,
 } from "@popcorn/shared";
 
@@ -61,6 +62,8 @@ export const api = {
   weather: () => req<WeatherToday>("/weather"),
   calendarEvents: () => req<CalendarEventsResponse>("/calendar-events"),
   xpLog: (limit = 200) => req<XpLogResponse>(`/xp-log?limit=${limit}`),
+  // date: yyyy-mm-dd, "today" or "yesterday" (family time zone)
+  summary: (date: string) => req<DaySummaryResponse>(`/summary?date=${encodeURIComponent(date)}`),
   complete: (body: CompleteRequest) =>
     req<CompleteResponse>("/complete", { method: "POST", body: JSON.stringify(body) }),
   adhoc: (body: AdhocRequest) =>

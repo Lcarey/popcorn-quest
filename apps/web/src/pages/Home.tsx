@@ -20,6 +20,7 @@ import { RepeatableDailyRow } from "../components/RepeatableDailyRow";
 import { AddQuestSheet } from "../components/AddQuestSheet";
 import { CelebrateToast } from "../components/CelebrateToast";
 import { FullDayCelebration } from "../components/FullDayCelebration";
+import { DayRecap } from "../components/DayRecap";
 import { HistoryHeatmap } from "../components/HistoryHeatmap";
 import { RewardShop } from "../components/RewardShop";
 import { StreakBadge } from "../components/StreakBadge";
@@ -401,6 +402,9 @@ export function Home() {
           onBuyShield={() => shieldMut.mutate()}
         />
       )}
+
+      {/* Yesterday's XP, itemised */}
+      <DayRecap key={date} date="yesterday" title="Yesterday" />
 
       {/* History */}
       {state?.history && (

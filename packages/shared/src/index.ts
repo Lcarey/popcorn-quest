@@ -189,6 +189,10 @@ export interface DailyHistoryEntry {
   // Total XP earned that day (task completions, bonuses, side quests; excludes
   // spends, undos, and refunds).
   xpEarned: number;
+  // XP log completions that day (daily, weekly and side quests, repeats
+  // counted separately, net of undos). `completed` above only counts distinct
+  // daily tasks.
+  completions?: number;
 }
 
 // =============================================================================
@@ -324,18 +328,38 @@ export interface XpDaySummary {
   undone: number; // XP taken back by unticking tasks (positive number)
   refunded: number; // denied reward claims (positive number)
   net: number; // sum of all signed amounts
+  completions: number; // task + side quest completions, net of undos
   entries: XpLogEntry[]; // chronological
 }
 
+// Field order is deliberate: agents tend to answer from whatever comes first.
 export interface DaySummaryResponse {
   date: string;
+  today: string; // server's local today, so "yesterday" can be checked
+  howToAnswer: string;
+  xpEarned: number;
+  completions: number;
+  earnedItems: string[]; // "7:57 PM  +15  Completed: ...", one per log entry, oldest first
+  otherItems: string[]; // spending, undos and refunds, same format
+  tasksDone: string[]; // from the XP log, "Title ×n" for repeats
+  tasksRemaining: string[];
   pet: { name: string; level: number; xp: number; spendableXp: number };
   streak: number;
   streakShields: number;
-  xp: XpDaySummary;
-  tasksDone: string[];
-  tasksRemaining: string[];
   pendingClaims: { rewardTitle: string; cost: number; claimedAt: string }[];
+  xp: XpDaySummary;
+}
+
+/** Earned XP: positive amounts that aren't reward refunds. */
+export function isXpEarn(e: XpLogEntry): boolean {
+  return e.amount > 0 && !e.reason.startsWith("Refund");
+}
+
+/** +1 for a task or side quest completion, -1 for an undo, 0 otherwise. */
+export function xpCompletionDelta(e: XpLogEntry): number {
+  if (e.reason.startsWith("Undid")) return -1;
+  if (e.amount > 0 && (e.reason.startsWith("Completed: ") || e.reason.startsWith("Side quest: "))) return 1;
+  return 0;
 }
 
 // =============================================================================
@@ -419,6 +443,9 @@ export function nextCosmeticUnlock(level: number): Cosmetic | undefined {
 // =============================================================================
 // Date helpers
 // =============================================================================
+
+// The family's time zone: "today", XP log days and displayed times follow it.
+export const FAMILY_TZ = "America/New_York";
 
 export function todayKey(d: Date = new Date()): string {
   const y = d.getFullYear();

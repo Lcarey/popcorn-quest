@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { Cadence, Reward, RewardClaim, TaskTemplate, WeeklyTrack, XpLogEntry } from "@popcorn/shared";
-import { todayKey } from "@popcorn/shared";
+import { FAMILY_TZ, isXpEarn, todayKey, xpCompletionDelta } from "@popcorn/shared";
 import { api } from "../api";
 import { COSMETICS } from "@popcorn/shared";
 
@@ -657,12 +657,39 @@ function CosmeticsPanel({ level, unlocked }: { level: number; unlocked: string[]
   );
 }
 
+const XP_LOG_LIMIT = 200;
+
+// Local (family) day an entry belongs to; older entries lack `date`.
+function xpEntryDay(e: XpLogEntry): string {
+  return e.date ?? new Date(e.at).toLocaleDateString("en-CA", { timeZone: FAMILY_TZ });
+}
+
+// Newest-first entries grouped into days, each with a one-line recap so the
+// per-day count is as easy to read as the rows (people and agents both).
+function groupXpLogByDay(entries: XpLogEntry[]) {
+  const days: { date: string; entries: XpLogEntry[]; earned: number; spent: number; completions: number }[] = [];
+  for (const e of entries) {
+    const date = xpEntryDay(e);
+    let g = days[days.length - 1];
+    if (!g || g.date !== date) {
+      g = { date, entries: [], earned: 0, spent: 0, completions: 0 };
+      days.push(g);
+    }
+    g.entries.push(e);
+    if (isXpEarn(e)) g.earned += e.amount;
+    else if (e.amount < 0 && !e.reason.startsWith("Undid")) g.spent -= e.amount;
+    g.completions += xpCompletionDelta(e);
+  }
+  return days;
+}
+
 function XpLogTable() {
   const logQuery = useQuery({
     queryKey: ["xp-log"],
-    queryFn: () => api.xpLog(200),
+    queryFn: () => api.xpLog(XP_LOG_LIMIT),
   });
   const entries: XpLogEntry[] = logQuery.data?.entries ?? [];
+  const days = groupXpLogByDay(entries);
 
   return (
     <Section title="XP log">
@@ -676,36 +703,55 @@ function XpLogTable() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-cream/95 backdrop-blur">
                 <tr className="text-left text-cocoa/60">
-                  <th className="px-3 py-2 font-semibold">Date</th>
-                  <th className="px-3 py-2 font-semibold">Time</th>
+                  <th className="px-3 py-2 font-semibold">Time (ET)</th>
                   <th className="px-3 py-2 font-semibold text-right">XP</th>
                   <th className="px-3 py-2 font-semibold">Reason</th>
                 </tr>
               </thead>
-              <tbody>
-                {entries.map((e) => {
-                  const d = new Date(e.at);
-                  return (
-                    <tr key={e.id} className="border-t border-cocoa/10 align-top">
-                      <td className="px-3 py-2 whitespace-nowrap text-cocoa/80">
-                        {d.toLocaleDateString()}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-cocoa/80">
-                        {d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}
-                      </td>
-                      <td
-                        className={[
-                          "px-3 py-2 whitespace-nowrap text-right font-display font-bold",
-                          e.amount >= 0 ? "text-green-600" : "text-coral",
-                        ].join(" ")}
-                      >
-                        {e.amount >= 0 ? `+${e.amount}` : e.amount}
-                      </td>
-                      <td className="px-3 py-2 text-cocoa">{e.reason}</td>
+              {days.map((g, i) => {
+                const partial = entries.length >= XP_LOG_LIMIT && i === days.length - 1;
+                const dayLabel = new Date(`${g.date}T00:00:00`).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                });
+                const recap = [
+                  `${Math.max(0, g.completions)} ${g.completions === 1 ? "completion" : "completions"}`,
+                  `+${g.earned} XP earned`,
+                  ...(g.spent ? [`−${g.spent} spent`] : []),
+                ].join(" · ");
+                return (
+                  <tbody key={g.date}>
+                    <tr className="border-t-2 border-cocoa/15 bg-cocoa/5">
+                      <th colSpan={3} scope="rowgroup" className="px-3 py-2 text-left font-display font-semibold text-cocoa">
+                        {dayLabel} — {recap}
+                        {partial && <span className="font-normal text-cocoa/50"> (older entries not shown)</span>}
+                      </th>
                     </tr>
-                  );
-                })}
-              </tbody>
+                    {g.entries.map((e) => (
+                      <tr key={e.id} className="border-t border-cocoa/10 align-top">
+                        <td className="px-3 py-2 whitespace-nowrap text-cocoa/80">
+                          {new Date(e.at).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            second: "2-digit",
+                            timeZone: FAMILY_TZ,
+                          })}
+                        </td>
+                        <td
+                          className={[
+                            "px-3 py-2 whitespace-nowrap text-right font-display font-bold",
+                            e.amount >= 0 ? "text-green-600" : "text-coral",
+                          ].join(" ")}
+                        >
+                          {e.amount >= 0 ? `+${e.amount}` : e.amount}
+                        </td>
+                        <td className="px-3 py-2 text-cocoa">{e.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                );
+              })}
             </table>
           </div>
         </div>

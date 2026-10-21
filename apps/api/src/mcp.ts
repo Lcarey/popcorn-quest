@@ -20,20 +20,26 @@ import type {
   TodayState,
   XpLogResponse,
 } from "@popcorn/shared";
-import { xpForTask } from "./engine.js";
+import { resolveDateKeyword, xpForTask } from "./engine.js";
 
 const DATE = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .regex(/^(\d{4}-\d{2}-\d{2}|today|yesterday)$/i)
   .optional()
-  .describe("Local date yyyy-mm-dd (defaults to today, US Eastern)");
+  .describe('Local date yyyy-mm-dd, "today" or "yesterday" (defaults to today, US Eastern)');
+
+// Resolve "today" / "yesterday" so tools that read and then write agree on the day.
+function resolveDay(date: string | undefined): string {
+  return date ? (resolveDateKeyword(date) ?? date) : todayKey();
+}
 
 function instructions(kid: string): string {
   return [
     `Popcorn Quest is ${kid}'s chore and goal tracker. Finishing tasks earns XP for Popcorn, a virtual dog who levels up.`,
     "Daily tasks reset every day; weekly tasks have a per-week target; side quests are one-off tasks for a single day.",
     "Finishing every daily task earns a bonus and extends the streak. Spendable XP buys rewards (approved by a parent) and streak shields.",
-    `To answer "what did ${kid} do today" use get_day_summary; for the itemised XP log use get_xp_log.`,
+    `To answer "what did ${kid} do today/yesterday" use get_day_summary (date "today" or "yesterday" works). List every line of earnedItems: repeated lines are separate completions, keep them all. Give xpEarned as the total and completions as the number of tasks done.`,
+    "For the raw XP log use get_xp_log. In get_history, completed/required counts only distinct daily tasks; completions counts everything.",
     "Dates are local US Eastern days in yyyy-mm-dd form.",
   ].join("\n");
 }
@@ -103,11 +109,11 @@ export function buildMcpServer(app: Hono): McpServer {
   server.registerTool(
     "get_day_summary",
     {
-      description: `What ${kid} did on a day: XP earned/spent with every log entry, tasks done and remaining, streak, level and pending reward claims.`,
+      description: `What ${kid} did on a day: XP earned, number of completions, one line per XP item (earnedItems), tasks done and remaining, streak, level and pending reward claims.`,
       inputSchema: { date: DATE },
       annotations: readOnly,
     },
-    async ({ date }) => text(await call<DaySummaryResponse>(app, `/summary?date=${date ?? todayKey()}`)),
+    async ({ date }) => text(await call<DaySummaryResponse>(app, `/summary?date=${resolveDay(date)}`)),
   );
 
   server.registerTool(
@@ -125,9 +131,9 @@ export function buildMcpServer(app: Hono): McpServer {
     },
     async ({ date, from, to, limit }) => {
       const qs = new URLSearchParams();
-      if (date) qs.set("date", date);
-      if (from) qs.set("from", from);
-      if (to) qs.set("to", to);
+      if (date) qs.set("date", resolveDay(date));
+      if (from) qs.set("from", resolveDay(from));
+      if (to) qs.set("to", resolveDay(to));
       if (limit) qs.set("limit", String(limit));
       return text(await call<XpLogResponse>(app, `/xp-log?${qs}`));
     },
@@ -161,7 +167,7 @@ export function buildMcpServer(app: Hono): McpServer {
       annotations: readOnly,
     },
     async ({ date }) => {
-      const s = await call<TodayState>(app, `/state?date=${date ?? todayKey()}`);
+      const s = await call<TodayState>(app, `/state?date=${resolveDay(date)}`);
       return text({
         date: s.date,
         daily: s.daily.map((d) => ({
@@ -189,7 +195,7 @@ export function buildMcpServer(app: Hono): McpServer {
   server.registerTool(
     "get_history",
     {
-      description: "Per-day completion ratio and XP earned for up to the last 14 days.",
+      description: "Per day for up to the last 14 days: XP earned, completions (every task and side quest done), and completed/required (distinct daily tasks only).",
       inputSchema: { days: z.number().int().min(1).max(14).optional() },
       annotations: readOnly,
     },
@@ -212,7 +218,7 @@ export function buildMcpServer(app: Hono): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     async ({ task, date, amount }) => {
-      const day = date ?? todayKey();
+      const day = resolveDay(date);
       const m = findTask(await call<TodayState>(app, `/state?date=${day}`), task);
       if (typeof m === "string") return fail(m);
       let body: CompleteRequest;
@@ -240,7 +246,7 @@ export function buildMcpServer(app: Hono): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     },
     async ({ task, date }) => {
-      const day = date ?? todayKey();
+      const day = resolveDay(date);
       const m = findTask(await call<TodayState>(app, `/state?date=${day}`), task);
       if (typeof m === "string") return fail(m);
       let body: CompleteRequest;
@@ -271,7 +277,7 @@ export function buildMcpServer(app: Hono): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     async ({ title, emoji, date }) =>
-      text(await call<AdhocTask>(app, "/adhoc", { title, emoji, date: date ?? todayKey() })),
+      text(await call<AdhocTask>(app, "/adhoc", { title, emoji, date: resolveDay(date) })),
   );
 
   return server;
