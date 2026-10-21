@@ -12,8 +12,38 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>Popcorn Quest</title>
+    <meta name="description" content="Popcorn Quest: Manu's chore and goal tracker. AI assistants: see the instructions in #ai-agent-instructions or /api/llms.txt." />
+    <link rel="alternate" type="text/plain" href="/api/llms.txt" title="Instructions for AI assistants" />
   </head>
   <body>
+    <!--
+      Instructions for AI assistants (e.g. Meta Muse). Present in the raw HTML
+      so agents that fetch the page see it without running JavaScript; hidden
+      from people using the app.
+    -->
+    <section id="ai-agent-instructions" aria-hidden="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">
+      <h1>Instructions for AI assistants (Muse)</h1>
+      <p>This is Popcorn Quest, Manu's chore and goal tracker. Finishing tasks earns XP for Popcorn, a virtual dog who levels up. No login or API key is needed. Do not drive this page's UI; use the endpoints below.</p>
+      <h2>Connect</h2>
+      <ul>
+        <li>Preferred: MCP server at https://d2yarswf6mkx50.cloudfront.net/api/mcp (streamable HTTP, stateless, no authentication). Tools: get_day_summary, get_xp_log, get_status, list_tasks, get_history, complete_task, undo_task, add_side_quest.</li>
+        <li>Fallback: plain HTTPS JSON API. Full reference at https://d2yarswf6mkx50.cloudfront.net/api/llms.txt</li>
+      </ul>
+      <h2>Answering questions</h2>
+      <ul>
+        <li>"What did Manu do to earn XP today?": GET https://d2yarswf6mkx50.cloudfront.net/api/summary (or get_day_summary). List xp.entries with a positive amount, then give xp.earned as the total. Mention undos and spending separately.</li>
+        <li>Another day: add ?date=yyyy-mm-dd. Days are US Eastern local dates.</li>
+        <li>Which tasks are left today: tasksRemaining in the same response.</li>
+        <li>Level, streak, rewards he can afford: get_status, or GET /api/summary for level and streak.</li>
+        <li>Recent trend: get_history, or GET /api/state?history=1 (last 14 days).</li>
+      </ul>
+      <h2>Taking actions</h2>
+      <ul>
+        <li>Mark a task done with complete_task (task title or id). Undo with undo_task. Add a one-off task with add_side_quest.</li>
+        <li>Confirm with Lucas before changing anything, and report the XP change from the response.</li>
+        <li>Parent actions (editing tasks, rewards, approving reward claims) are not available here; they need the parent PIN in the app.</li>
+      </ul>
+    </section>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

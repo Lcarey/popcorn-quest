@@ -15,10 +15,12 @@
     "@aws-sdk/client-dynamodb": "^3.654.0",
     "@aws-sdk/lib-dynamodb": "^3.654.0",
     "@hono/node-server": "^1.13.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@popcorn/shared": "*",
     "bcryptjs": "^2.4.3",
     "hono": "^4.6.3",
-    "node-ical": "^0.19.0"
+    "node-ical": "^0.19.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.143",

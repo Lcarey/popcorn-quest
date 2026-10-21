@@ -316,6 +316,28 @@ export interface XpLogResponse {
   entries: XpLogEntry[];
 }
 
+// One local day of XP activity, rolled up for agents (e.g. Muse) and reports.
+export interface XpDaySummary {
+  date: string; // yyyy-mm-dd
+  earned: number; // completions, bonuses, side quests (excludes refunds/undos)
+  spent: number; // rewards claimed, shields bought (positive number)
+  undone: number; // XP taken back by unticking tasks (positive number)
+  refunded: number; // denied reward claims (positive number)
+  net: number; // sum of all signed amounts
+  entries: XpLogEntry[]; // chronological
+}
+
+export interface DaySummaryResponse {
+  date: string;
+  pet: { name: string; level: number; xp: number; spendableXp: number };
+  streak: number;
+  streakShields: number;
+  xp: XpDaySummary;
+  tasksDone: string[];
+  tasksRemaining: string[];
+  pendingClaims: { rewardTitle: string; cost: number; claimedAt: string }[];
+}
+
 // =============================================================================
 // XP / leveling rules
 // =============================================================================

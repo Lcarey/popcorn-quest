@@ -37,6 +37,8 @@ export class PopcornQuestStack extends cdk.Stack {
         // OpenWeather — set OPENWEATHER_API_KEY in the shell when running `cdk deploy` (not committed).
         OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY ?? "",
         WEATHER_ZIP: process.env.WEATHER_ZIP ?? "02474,US",
+        FAMILY_TZ: "America/New_York",
+        KID_NAME: "Manu",
       },
     });
     table.grantReadWriteData(fn);

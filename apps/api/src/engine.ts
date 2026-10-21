@@ -26,6 +26,8 @@ import type {
   TaskTemplate,
   TodayState,
   WeeklyTaskView,
+  XpDaySummary,
+  XpLogEntry,
 } from "@popcorn/shared";
 
 export interface AwardResult {
@@ -289,4 +291,36 @@ export function latestSessionCompletion(
   return rows.sort(
     (a, b) => b.date.localeCompare(a.date) || b.completedAt.localeCompare(a.completedAt),
   )[0];
+}
+
+/** Local day an XP log entry belongs to (older entries lack `date`). */
+export function xpLogDate(entry: XpLogEntry): string {
+  return entry.date ?? todayKey(new Date(entry.at));
+}
+
+/**
+ * Roll up one local day of XP log entries. "Earned" matches the heatmap rule
+ * in loadState: positive amounts that aren't reward refunds.
+ */
+export function summarizeXpDay(entries: XpLogEntry[], date: string): XpDaySummary {
+  const day = entries
+    .filter((e) => xpLogDate(e) === date)
+    .sort((a, b) => a.at.localeCompare(b.at));
+  let earned = 0;
+  let spent = 0;
+  let undone = 0;
+  let refunded = 0;
+  let net = 0;
+  for (const e of day) {
+    net += e.amount;
+    if (e.amount > 0) {
+      if (e.reason.startsWith("Refund")) refunded += e.amount;
+      else earned += e.amount;
+    } else if (e.reason.startsWith("Undid")) {
+      undone -= e.amount;
+    } else {
+      spent -= e.amount;
+    }
+  }
+  return { date, earned, spent, undone, refunded, net, entries: day };
 }

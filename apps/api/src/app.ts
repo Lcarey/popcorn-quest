@@ -42,6 +42,7 @@ import type {
   UpdateTemplateRequest,
   WeatherToday,
   CalendarEventsResponse,
+  DaySummaryResponse,
   XpLogEntry,
   XpLogResponse,
 } from "@popcorn/shared";
@@ -79,10 +80,13 @@ import {
   refundXp,
   reverseEarn,
   spendXp,
+  summarizeXpDay,
   xpForTask,
+  xpLogDate,
 } from "./engine.js";
 import { fetchWeatherToday } from "./weather.js";
 import { getCalendarEventsCached } from "./calendar.js";
+import { handleMcp } from "./mcp.js";
 
 const app = new Hono();
 
@@ -197,6 +201,12 @@ async function checkPin(pin: string): Promise<boolean> {
   return bcrypt.compare(pin, fam.pinHash);
 }
 
+function optionalDate(v: string | undefined, name: string): string | undefined {
+  if (!v) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, `'${name}' must be yyyy-mm-dd`);
+  return v;
+}
+
 function requireString(v: unknown, name: string): string {
   if (typeof v !== "string" || !v.trim()) {
     throw new HttpError(400, `Missing or invalid '${name}'`);
@@ -255,12 +265,71 @@ app.get("/cosmetics", (c) => c.json({ cosmetics: COSMETICS }));
 
 // ------- GET /xp-log (parent audit) --------------------------------------
 
+// Optional ?date=yyyy-mm-dd or ?from=&to= scope the log to local days
+// (chronological); without them it's the most recent `limit` entries.
 app.get("/xp-log", async (c) => {
   const raw = Number(c.req.query("limit"));
   const limit = Number.isFinite(raw) ? Math.max(1, Math.min(1000, Math.floor(raw))) : 200;
-  const entries = await listXpLog(limit);
+  const date = optionalDate(c.req.query("date"), "date");
+  const from = date ?? optionalDate(c.req.query("from"), "from");
+  if (!from) {
+    const entries = await listXpLog(limit);
+    return c.json({ entries } satisfies XpLogResponse);
+  }
+  const to = date ?? optionalDate(c.req.query("to"), "to") ?? todayKey();
+  const entries = (await listXpLogInDays(from))
+    .filter((e) => {
+      const d = xpLogDate(e);
+      return d >= from && d <= to;
+    })
+    .slice(0, limit);
   return c.json({ entries } satisfies XpLogResponse);
 });
+
+// ------- GET /summary (one-call day recap for agents like Muse) ----------
+
+app.get("/summary", async (c) => {
+  const date = optionalDate(c.req.query("date"), "date") ?? todayKey();
+  const [state, logs] = await Promise.all([loadState(date, false), listXpLogInDays(date)]);
+  const label = (title: string, emoji: string) => `${emoji} ${title}`;
+  const tasksDone: string[] = [];
+  const tasksRemaining: string[] = [];
+  for (const d of state.daily) {
+    const name = label(d.template.title, d.template.emoji);
+    if (d.completedToday) tasksDone.push(d.amountToday && d.amountToday > 1 ? `${name} ×${d.amountToday}` : name);
+    else tasksRemaining.push(name);
+  }
+  for (const w of state.weekly) {
+    const name = `${label(w.template.title, w.template.emoji)} (${w.doneThisWeek}/${w.target} this week)`;
+    if (w.completedToday) tasksDone.push(name);
+    else if (w.doneThisWeek < w.target) tasksRemaining.push(name);
+  }
+  for (const a of state.adhoc) {
+    (a.done ? tasksDone : tasksRemaining).push(`${label(a.title, a.emoji)} (side quest)`);
+  }
+  const { pet } = state.family;
+  const resp: DaySummaryResponse = {
+    date,
+    pet: { name: pet.name, level: pet.level, xp: pet.xp, spendableXp: pet.spendableXp },
+    streak: state.family.streak,
+    streakShields: state.family.streakShields ?? 0,
+    xp: summarizeXpDay(logs, date),
+    tasksDone,
+    tasksRemaining,
+    pendingClaims: state.pendingClaims.map((cl) => ({
+      rewardTitle: cl.rewardTitle,
+      cost: cl.cost,
+      claimedAt: cl.claimedAt,
+    })),
+  };
+  return c.json(resp);
+});
+
+// XP log entries that could belong to local days >= `from`. Starts a day early
+// because `at` is UTC and can sit on the previous UTC date.
+function listXpLogInDays(from: string) {
+  return listXpLogSince(`${priorDate(from, 1)}T00:00:00.000Z`);
+}
 
 // ------- POST /setup -----------------------------------------------------
 
@@ -895,5 +964,48 @@ app.post("/verify-pin", async (c) => {
   if (!ok) throw new HttpError(403, "Wrong PIN");
   return c.json({ ok: true });
 });
+
+// ------- AI agent access (Muse etc.) -------------------------------------
+
+app.all("/mcp", (c) => handleMcp(c.req.raw, app));
+
+app.get("/llms.txt", (c) => c.text(LLMS_TXT));
+
+const LLMS_TXT = `# Popcorn Quest API
+
+Popcorn Quest is a kid's chore and goal tracker: finishing tasks earns XP for
+Popcorn, a virtual dog who levels up. No authentication is required. Paths are
+relative to the site this file was served from. Dates are local US Eastern days
+(yyyy-mm-dd) and default to today.
+
+## Preferred: MCP server
+POST /api/mcp (streamable HTTP, stateless, JSON responses, no auth)
+Tools: get_day_summary, get_xp_log, get_status, list_tasks, get_history,
+complete_task, undo_task, add_side_quest.
+
+## REST (read)
+GET /api/summary?date=yyyy-mm-dd
+  One-call recap of a day: XP earned/spent/undone with every log entry, tasks
+  done and remaining, pet level and XP, streak, pending reward claims.
+GET /api/xp-log?date=yyyy-mm-dd        one day's XP log, oldest first
+GET /api/xp-log?from=yyyy-mm-dd&to=... a range of days
+GET /api/xp-log?limit=50               most recent entries, newest first
+  Each entry: at (ISO time), amount (signed), reason, balance (spendable XP
+  after), date. Reasons look like "Completed: <task>", "Side quest: <task>",
+  "All daily tasks done (bonus)", "Undid: <task>", "Reward claimed: <reward>",
+  "Bought streak shield", "Refund (denied): <reward>".
+GET /api/state?date=yyyy-mm-dd         full task state (ids for POST /complete)
+GET /api/state?history=1               adds the last 14 days of completion and XP
+
+## REST (write)
+POST /api/complete  {"templateId": "...", "date": "yyyy-mm-dd"}
+  Toggles a once-a-day task; repeatable tasks take "delta": 1 or -1;
+  cumulative weekly tasks take "amount". Side quests use "adhocId".
+POST /api/adhoc     {"title": "...", "emoji": "✨", "date": "yyyy-mm-dd"}
+
+## Example
+"What did the kid do to earn XP today?" -> GET /api/summary and read
+xp.entries (or call the get_day_summary MCP tool).
+`;
 
 export default app;
