@@ -86,7 +86,6 @@ import {
 } from "./engine.js";
 import { fetchWeatherToday } from "./weather.js";
 import { getCalendarEventsCached } from "./calendar.js";
-import { handleMcp } from "./mcp.js";
 
 const app = new Hono();
 
@@ -967,7 +966,12 @@ app.post("/verify-pin", async (c) => {
 
 // ------- AI agent access (Muse etc.) -------------------------------------
 
-app.all("/mcp", (c) => handleMcp(c.req.raw, app));
+// Loaded on demand so the MCP SDK (~1 MB) isn't parsed on cold starts that
+// only serve the app.
+app.all("/mcp", async (c) => {
+  const { handleMcp } = await import("./mcp.js");
+  return handleMcp(c.req.raw, app);
+});
 
 app.get("/llms.txt", (c) => c.text(LLMS_TXT));
 
